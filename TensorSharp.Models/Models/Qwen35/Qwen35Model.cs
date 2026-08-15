@@ -5066,7 +5066,12 @@ namespace TensorSharp.Models
             if (gateW.PerExpertNe0 != hiddenSize || upW.PerExpertNe0 != hiddenSize
                 || upW.PerExpertNe1 != intermediate
                 || downW.PerExpertNe0 != intermediate || downW.PerExpertNe1 != hiddenSize)
+            {
+                PathDiag.DeclineOnce("qwen35 stacked-moe",
+                    $"stacked expert dims do not match hidden={hiddenSize}/intermediate={intermediate}",
+                    "per-expert host-streamed MoE");
                 return null;
+            }
 
             // Host top-K routing for every token: ids[t*K+u], weights[t*K+u].
             int[] selExperts = new int[seqLen * K];
@@ -5097,8 +5102,11 @@ namespace TensorSharp.Models
                     activation: GgmlBasicOps.MoEActivation.SwiGLUSplit,
                     runOnCpu: MoeCpuOffloadConfig.IsLayerOnCpu(layer));
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                PathDiag.DeclineOnce("qwen35 stacked-moe",
+                    $"MoEFFNPrefill threw {ex.GetType().Name}: {ex.Message}",
+                    "per-expert host-streamed MoE");
                 output.Dispose();
                 return null;
             }

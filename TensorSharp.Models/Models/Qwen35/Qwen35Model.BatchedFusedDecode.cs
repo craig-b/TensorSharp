@@ -146,7 +146,14 @@ namespace TensorSharp.Models
                             && HasW(_ssmBetaQW[l], _ssmBetaF32[l]) && HasW(_ssmAlphaQW[l], _ssmAlphaF32[l])
                             && _ssmConv1dW[l] != null && _ssmDtBiasW[l] != null && _ssmAW[l] != null
                             && _ssmNormW[l] != null && HasW(_ssmOutQW[l], _ssmOutF32[l]);
-                    if (!ok) { _bfdUnsupported = true; return null; }
+                    if (!ok)
+                    {
+                        _bfdUnsupported = true;
+                        PathDiag.DeclineOnce("qwen35 batched-fused-decode",
+                            $"layer {l} ({(_isRecurrent[l] ? "recurrent" : "attention")}) missing a required weight",
+                            "op-by-op batched decode");
+                        return null;
+                    }
                 }
                 _bfdGdnSlot = new int[n];
                 int gc = 0;
@@ -171,7 +178,13 @@ namespace TensorSharp.Models
                 for (int l = 0; l < n; l++)
                 {
                     if (_isRecurrent[l]) continue;
-                    if (_bfdPoolK[l] == null || _q35PagedK[l] == null) { _bfdUnsupported = true; return null; }
+                    if (_bfdPoolK[l] == null || _q35PagedK[l] == null)
+                    {
+                        _bfdUnsupported = true;
+                        PathDiag.DeclineOnce("qwen35 batched-fused-decode",
+                            $"layer {l} paged KV pool not materialized", "op-by-op batched decode");
+                        return null;
+                    }
                     long need = (long)totalSlots * kvFlat;
                     if (_q35PagedK[l].LongLength < need) return null;
                     _bfdPoolK[l].SetElementsAsFloat(_q35PagedK[l]);
@@ -352,7 +365,8 @@ namespace TensorSharp.Models
             if (!ok2)
             {
                 _bfdUnsupported = true;
-                Console.Error.WriteLine("[bfd] batched fused decode declined (native 0); using op-by-op.");
+                PathDiag.DeclineOnce("qwen35 batched-fused-decode",
+                    "native batched decode kernel returned failure", "op-by-op batched decode");
                 return null;
             }
 

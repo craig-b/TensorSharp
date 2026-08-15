@@ -144,8 +144,11 @@ namespace TensorSharp.Models
             if (string.Equals(Environment.GetEnvironmentVariable("TS_QWEN35_MIGRATE"), "0", StringComparison.Ordinal))
                 return false;
             try { return MigrateLinearToPaged(owner, blockSize); }
-            catch (Exception)
+            catch (Exception ex)
             {
+                PathDiag.DeclineOnce("qwen35 kv-migration",
+                    $"linear-to-paged migration threw {ex.GetType().Name}: {ex.Message}",
+                    "serialized per-sequence rotation");
                 return false;
             }
         }
