@@ -114,6 +114,21 @@ namespace TensorSharp.Server.Hosting
                     "Do not serve the bundled web UI; GET / answers the plain liveness text instead. All HTTP API " +
                     "endpoints (including /uploads) stay up. Default: UI on (TS_NO_WEBUI env var overrides).",
                     "--no-webui"),
+                new OptionHelp("--api-key <key>",
+                    "Require this API key on every request, sent as 'Authorization: Bearer <key>' or 'X-Api-Key: " +
+                    "<key>'. GET /health and the bundled Web UI files stay open. Default: no key — every route is " +
+                    "anonymous (TS_API_KEY env var also sets it).",
+                    "--api-key sk-mysecret"),
+                new OptionHelp("--api-key-file <path>",
+                    "Read the API key from a file (surrounding whitespace trimmed), keeping the key out of the " +
+                    "process list and shell history. --api-key wins when both are given.",
+                    "--api-key-file /etc/tensorsharp/api-key"),
+                new OptionHelp("--api-key-scope <all|external>",
+                    "Which clients must present the key. all (default): every client, loopback included. external: " +
+                    "only clients connecting from non-loopback addresses — local tools and the Web UI keep working " +
+                    "unkeyed while the LAN/internet-facing bind is protected. Behind a reverse proxy every request " +
+                    "looks loopback, so use all there. Requires an API key.",
+                    "--api-key sk-mysecret --api-key-scope external"),
             }),
             ("Compute backend", new[]
             {

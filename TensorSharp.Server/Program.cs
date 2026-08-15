@@ -296,6 +296,11 @@ else
     startupLogger.LogInformation(LogEventIds.HostConfiguration,
         "Web UI disabled (--no-webui / TS_NO_WEBUI): wwwroot is not served; API endpoints and /uploads remain available");
 }
+// Opt-in API-key gate (inert when no key is configured). Placed after the
+// wwwroot static files so the bundled UI shell stays reachable, and before
+// /uploads and every endpoint so user content and all API surfaces require
+// the key. /health is exempted inside the middleware.
+app.UseApiKeyAuthentication(hostingOptions);
 // /uploads holds user-supplied files, so its content types come from the
 // UploadContentPolicy allow-list: media keeps real types, text/code always
 // comes back as text/plain (an uploaded .html page must never execute in the

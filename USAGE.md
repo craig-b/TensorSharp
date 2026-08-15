@@ -470,6 +470,9 @@ Running `TensorSharp.Server` with no arguments prints the full parameter referen
 | `--redis-url <url>` | Redis connection string enabling both the shared KV cache tier and the Responses API store (e.g. `localhost:6379`). Sets both `TS_KV_CACHE_REDIS_URL` and `TS_RESPONSES_STORE_REDIS_URL`. |
 | `--paged-kv-redis-url <url>` | Redis connection string for the shared KV cache tier only (e.g. `localhost:6379`). Env: `TS_KV_CACHE_REDIS_URL`. |
 | `--paged-kv-redis-ttl <min>` | TTL in minutes for Redis KV cache entries; `0` = no TTL (default: `1440`, i.e. 24 hours). Env: `TS_KV_CACHE_REDIS_TTL_MINUTES`. |
+| `--api-key <key>` | Require this API key on every request, sent as `Authorization: Bearer <key>` (what OpenAI SDKs do) or `X-Api-Key: <key>`. `GET /health` and the Web UI shell page stay open; every API route (Web UI calls included) returns `401` without the key. Default: no key — every route is anonymous, matching servers started before this option existed. Env: `TS_API_KEY`. |
+| `--api-key-file <path>` | Read the API key from a file (surrounding whitespace trimmed), keeping it out of the process list and shell history. `--api-key` wins when both are given. |
+| `--api-key-scope <all\|external>` | Which clients must present the key. `all` (default): every client, loopback included. `external`: only clients connecting from non-loopback addresses — local tools and the bundled Web UI keep working unkeyed while the LAN/internet-facing bind is protected. The check uses the TCP connection's remote address, so behind a reverse proxy every request looks loopback — use `all` there. Requires an API key. |
 
 Per-request fields in the chat / generate JSON payloads (e.g. `temperature`,
 `top_p`, `top_k`, `min_p`, `repeat_penalty`, `presence_penalty`,
@@ -493,6 +496,7 @@ did unconditionally.
 | `VIDEO_MAX_FRAMES` | Optional upper bound on frames extracted from an **input video prompt** (evenly down-sampled); unset/`0` means no cap (default: no cap). This is unrelated to Wan output `--video-frames`. |
 | `PORT` / `HOST` | Listen port / bind interface when `--port` / `--host` are not passed (defaults: `5000`, `0.0.0.0`) |
 | `ASPNETCORE_URLS` | Full listen URL(s) when none of `--port`, `--host`, `--urls`, `PORT`, or `HOST` is set |
+| `TS_API_KEY` | API key required on requests when neither `--api-key` nor `--api-key-file` is passed (default: unset — every route stays anonymous) |
 | `TENSORSHARP_TEMPERATURE` | Sampling temperature when `--temperature` is not passed. Counts as operator-configured, so it also outranks the request body under the default `--sampling-precedence config` |
 | `TENSORSHARP_TOP_K` | Top-K when `--top-k` is not passed (same precedence rule as `TENSORSHARP_TEMPERATURE`) |
 | `TENSORSHARP_TOP_P` | Top-P when `--top-p` is not passed (same precedence rule) |
