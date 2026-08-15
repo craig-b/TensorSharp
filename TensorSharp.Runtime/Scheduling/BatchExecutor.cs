@@ -1605,9 +1605,9 @@ namespace TensorSharp.Runtime.Scheduling
 
             // Evict oldest holders beyond the budget (frees their VRAM).
             int budget = ExecutionOptions.FromEnvironment().RetainedFusedCacheBudget;
-            while (_retainedFused.Count > budget)
+            while (_retainedFused.Count > budget && _retainedFused.First is { } head)
             {
-                var victim = _retainedFused.First!.Value;
+                var victim = head.Value;
                 _retainedFused.RemoveFirst();
                 fused.DiscardRetainedCache(victim.RequestId);
             }

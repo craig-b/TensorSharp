@@ -275,9 +275,8 @@ namespace TensorSharp.Runtime.Scheduling
 
             // -------------------------------------------------------------- 2. Admit waiting sequences.
             // --------------------------------------------------------------
-            while (_waiting.Count > 0 && tokenBudget > 0 && _running.Count < _cfg.MaxNumRunningSequences)
+            while (_waiting.First is { } node && tokenBudget > 0 && _running.Count < _cfg.MaxNumRunningSequences)
             {
-                var node = _waiting.First!;
                 var seq = node.Value;
 
                 // Try prefix cache lookup before allocating blocks (only for
@@ -536,8 +535,7 @@ namespace TensorSharp.Runtime.Scheduling
 
             // Re-park at the front of the waiting queue so the victim resumes
             // soon - we don't want preemption to permanently demote a request.
-            _waiting.AddFirst(victim);
-            _waitingIndex[victim.RequestId] = _waiting.First!;
+            _waitingIndex[victim.RequestId] = _waiting.AddFirst(victim);
         }
 
         /// <summary>Look up a sequence's prompt prefix in the block hash index
