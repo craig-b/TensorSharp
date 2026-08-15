@@ -22,7 +22,8 @@ namespace TensorSharp.Runtime.Redis
 
         bool StringSet(string key, byte[] value, TimeSpan? expiry);
 
-        byte[] StringGet(string key);
+        /// <summary>Null on a missing key or a failed Redis read.</summary>
+        byte[]? StringGet(string key);
 
         void KeyDelete(string[] keys);
 

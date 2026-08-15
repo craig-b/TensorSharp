@@ -133,7 +133,7 @@ namespace TensorSharp.Runtime
                     // renders null as an empty string, which reaches the model as
                     // a meaningless empty choice in the enum.
                     foreach (JsonElement v in enumValues.EnumerateArray())
-                        param.Enum.Add(v.ValueKind == JsonValueKind.String ? v.GetString() : v.GetRawText());
+                        param.Enum.Add(v.ValueKind == JsonValueKind.String ? v.GetString()! : v.GetRawText());
                 }
                 fn.Parameters[prop.Name] = param;
             }
@@ -144,7 +144,7 @@ namespace TensorSharp.Runtime
             return fn;
         }
 
-        private static string GetString(JsonElement obj, string name)
+        private static string? GetString(JsonElement obj, string name)
             => obj.TryGetProperty(name, out JsonElement v) && v.ValueKind == JsonValueKind.String
                 ? v.GetString()
                 : null;
@@ -186,7 +186,7 @@ namespace TensorSharp.Runtime
                 return;
             foreach (JsonElement v in req.EnumerateArray())
                 if (v.ValueKind == JsonValueKind.String)
-                    into.Add(v.GetString());
+                    into.Add(v.GetString()!);
         }
     }
 

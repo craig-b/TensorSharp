@@ -46,7 +46,7 @@ namespace TensorSharp.Runtime.Scheduling
         private long _totalForwardTicks;
         private bool _disposed;
 
-        public InferenceEngine(IModelArchitecture model, SchedulerConfig cfg, ILogger logger = null)
+        public InferenceEngine(IModelArchitecture model, SchedulerConfig cfg, ILogger? logger = null)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
             ArgumentNullException.ThrowIfNull(cfg);
@@ -165,7 +165,7 @@ namespace TensorSharp.Runtime.Scheduling
 
                 // Run one scheduler step.
                 sw.Restart();
-                SchedulerOutput output = null;
+                SchedulerOutput? output = null;
                 List<SequenceStepResult> results;
                 try
                 {
@@ -288,7 +288,7 @@ namespace TensorSharp.Runtime.Scheduling
             NotifyReleasedSequences(released);
         }
 
-        private void FailStepSequences(Exception ex, SchedulerOutput output, string phase)
+        private void FailStepSequences(Exception ex, SchedulerOutput? output, string phase)
         {
             var affected = GetAffectedSequences(output);
             if (affected.Count == 0)
@@ -353,7 +353,7 @@ namespace TensorSharp.Runtime.Scheduling
             NotifyReleasedSequences(released);
         }
 
-        private List<SequenceState> GetAffectedSequences(SchedulerOutput output)
+        private List<SequenceState> GetAffectedSequences(SchedulerOutput? output)
         {
             var affected = new List<SequenceState>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -477,7 +477,7 @@ namespace TensorSharp.Runtime.Scheduling
                     bool finished = false;
                     for (int t = 0; t < totalNew && !finished; t++)
                     {
-                        int token = t == 0 ? r.SampledToken : r.ExtraTokens[t - 1];
+                        int token = t == 0 ? r.SampledToken : r.ExtraTokens![t - 1];
                         int emittedCount = baseCount + t + 1;
 
                         // Stop on EOS. Do NOT publish the EOS token to the
@@ -561,7 +561,7 @@ namespace TensorSharp.Runtime.Scheduling
             ILogger logger)
         {
             int numBlocks = cfg.NumBlocks;
-            string rawOverride = Environment.GetEnvironmentVariable("TS_SCHED_NUM_BLOCKS");
+            string? rawOverride = Environment.GetEnvironmentVariable("TS_SCHED_NUM_BLOCKS");
             bool explicitOverride = int.TryParse(rawOverride, out int overrideBlocks)
                 && overrideBlocks > 0;
             if (explicitOverride || cfg.BlockSize <= 0)

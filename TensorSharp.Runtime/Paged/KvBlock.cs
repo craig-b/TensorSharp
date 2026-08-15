@@ -60,8 +60,8 @@ namespace TensorSharp.Runtime.Paged
         /// <summary>Doubly-linked-list pointers for the free queue. Maintained by
         /// <see cref="FreeBlockQueue"/>. When the block is allocated both pointers
         /// are null.</summary>
-        internal KvBlock PrevFree;
-        internal KvBlock NextFree;
+        internal KvBlock? PrevFree;
+        internal KvBlock? NextFree;
 
         public KvBlock(int id)
         {
@@ -110,17 +110,17 @@ namespace TensorSharp.Runtime.Paged
 
             block.PrevFree = _tail.PrevFree;
             block.NextFree = _tail;
-            _tail.PrevFree.NextFree = block;
+            _tail.PrevFree!.NextFree = block;
             _tail.PrevFree = block;
             _count++;
         }
 
         /// <summary>Pop from the head (least-recently-used).</summary>
-        public KvBlock Dequeue()
+        public KvBlock? Dequeue()
         {
             if (_count == 0)
                 return null;
-            KvBlock first = _head.NextFree;
+            KvBlock first = _head.NextFree!;
             Remove(first);
             return first;
         }
@@ -131,15 +131,15 @@ namespace TensorSharp.Runtime.Paged
         {
             if (block.PrevFree == null && block.NextFree == null)
                 return; // not in queue
-            block.PrevFree.NextFree = block.NextFree;
-            block.NextFree.PrevFree = block.PrevFree;
+            block.PrevFree!.NextFree = block.NextFree;
+            block.NextFree!.PrevFree = block.PrevFree;
             block.PrevFree = null;
             block.NextFree = null;
             _count--;
         }
 
         /// <summary>Peek the first block without removing.</summary>
-        public KvBlock PeekFront()
+        public KvBlock? PeekFront()
         {
             if (_count == 0) return null;
             return _head.NextFree;

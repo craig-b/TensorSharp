@@ -111,7 +111,7 @@ namespace TensorSharp.Runtime.Scheduling
                 MaxReusablePrefixTokens = model.MaxReusablePrefixTokens,
                 HasMultimodalInjector = model.MultimodalInjector != null,
                 HasMtpDraftHead = hasMtp,
-                MtpSpeculationProfitable = hasMtp && spec.MtpSpeculationProfitable,
+                MtpSpeculationProfitable = hasMtp && spec!.MtpSpeculationProfitable,
                 SupportsBatchedMtpTrunk = hasMtp
                     && spec is IMtpBatchedSpeculativeModel batchedSpec
                     && batchedSpec.SupportsBatchedSpecTrunk,

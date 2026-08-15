@@ -21,7 +21,7 @@ namespace TensorSharp.Runtime.Paged
     /// </summary>
     public sealed class PagedKvStorage : IDisposable
     {
-        private readonly byte[][] _slabs;
+        private readonly byte[]?[] _slabs;
         private readonly long _blockByteSize;
         private readonly int _numBlocks;
         private bool _disposed;
@@ -55,14 +55,14 @@ namespace TensorSharp.Runtime.Paged
         public Span<byte> GetSpan(int blockId)
         {
             EnsureSlab(blockId);
-            return _slabs[blockId].AsSpan();
+            return _slabs[blockId]!.AsSpan();
         }
 
         /// <summary>Read-only view of block <paramref name="blockId"/>.</summary>
         public ReadOnlySpan<byte> GetReadOnlySpan(int blockId)
         {
             EnsureSlab(blockId);
-            return _slabs[blockId].AsSpan();
+            return _slabs[blockId]!.AsSpan();
         }
 
         /// <summary>Drop the slab for block <paramref name="blockId"/> back to the GC.

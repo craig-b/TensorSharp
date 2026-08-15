@@ -57,7 +57,7 @@ namespace TensorSharp.Runtime
         }
 
         public bool Equals(KvBlockHash other) => _lo == other._lo && _hi == other._hi;
-        public override bool Equals(object obj) => obj is KvBlockHash h && Equals(h);
+        public override bool Equals(object? obj) => obj is KvBlockHash h && Equals(h);
         public override int GetHashCode() => HashCode.Combine(_lo, _hi);
         public override string ToString() => ToHexString();
 
@@ -99,7 +99,7 @@ namespace TensorSharp.Runtime
 
             byte[] fingerprintBytes = Encoding.UTF8.GetBytes(fingerprint);
             Span<byte> blockTokenBytes = stackalloc byte[Math.Min(blockSize, 4096) * sizeof(int)];
-            byte[] rented = null;
+            byte[]? rented = null;
             try
             {
                 int needed = blockSize * sizeof(int);

@@ -135,7 +135,7 @@ namespace TensorSharp.Runtime
         /// conversation. Dropping the template's header restores the exact cached stream:
         /// <c>&lt;|start|&gt;assistant</c> + raw tokens.
         /// </summary>
-        internal static string GetTemplateAssistantHeaderAnchor(string architecture)
+        internal static string? GetTemplateAssistantHeaderAnchor(string architecture)
         {
             if (architecture is "muse-glimmer" or "muse_glimmer")
                 return "<|start|>assistant";
@@ -300,7 +300,7 @@ namespace TensorSharp.Runtime
             // The mirror image of the suffix injection: some templates emit MORE assistant
             // framing for a past turn than the generation prompt did, and the raw tokens
             // already contain their own. See GetTemplateAssistantHeaderAnchor.
-            string headerAnchor = GetTemplateAssistantHeaderAnchor(architecture);
+            string? headerAnchor = GetTemplateAssistantHeaderAnchor(architecture);
             if (!string.IsNullOrEmpty(headerAnchor))
                 text = StripTemplateAssistantHeaders(text, headerAnchor);
 

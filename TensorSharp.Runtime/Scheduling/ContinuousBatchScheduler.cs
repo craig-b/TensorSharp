@@ -51,8 +51,8 @@ namespace TensorSharp.Runtime.Scheduling
         // the model's live KV cache (beyond the pooled-snapshot cap); the second
         // sets the sequence up to do so. Lets same-session follow-up turns reuse the
         // whole conversation prefix on sliding-window models. Null when unwired.
-        private Func<SequenceState, int> _liveContinuationLcp;
-        private Func<SequenceState, int, bool> _liveContinuationAdopt;
+        private Func<SequenceState, int>? _liveContinuationLcp;
+        private Func<SequenceState, int, bool>? _liveContinuationAdopt;
 
         // Retained fused-cache continuation hooks (wired by the engine to the
         // executor). Cross-request analogue of the live-cache hooks above: they
@@ -61,8 +61,8 @@ namespace TensorSharp.Runtime.Scheduling
         // continuation (one shared cache, sole-sequence only), each retained holder
         // is independent, so multiple concurrent admissions can each continue from
         // their own holder. Null when unwired.
-        private Func<SequenceState, int> _fusedContinuationLcp;
-        private Func<SequenceState, int, bool> _fusedContinuationAdopt;
+        private Func<SequenceState, int>? _fusedContinuationLcp;
+        private Func<SequenceState, int, bool>? _fusedContinuationAdopt;
 
         private readonly LinkedList<SequenceState> _waiting = new();
         private readonly Dictionary<string, LinkedListNode<SequenceState>> _waitingIndex = new();
@@ -76,7 +76,7 @@ namespace TensorSharp.Runtime.Scheduling
             SchedulerConfig cfg,
             BlockPool pool,
             string modelFingerprint,
-            ILogger logger = null,
+            ILogger? logger = null,
             bool supportsCrossSequenceKvReuse = true,
             int maxReusablePrefixTokens = int.MaxValue,
             bool requiresPerBlockCapture = false)
@@ -277,7 +277,7 @@ namespace TensorSharp.Runtime.Scheduling
             // --------------------------------------------------------------
             while (_waiting.Count > 0 && tokenBudget > 0 && _running.Count < _cfg.MaxNumRunningSequences)
             {
-                var node = _waiting.First;
+                var node = _waiting.First!;
                 var seq = node.Value;
 
                 // Try prefix cache lookup before allocating blocks (only for
@@ -402,7 +402,7 @@ namespace TensorSharp.Runtime.Scheduling
         /// <summary>Mark a sequence as errored and release any scheduler-owned
         /// blocks. Error paths deliberately skip prefix-cache registration
         /// because the model state for the failed step may be partial.</summary>
-        public bool NotifyError(SequenceState seq, Exception error, SchedulerOutput output = null)
+        public bool NotifyError(SequenceState seq, Exception error, SchedulerOutput? output = null)
         {
             if (seq == null) return false;
             bool finished = FinishSequence(seq, SequenceStatus.FinishedError, "error", cacheBlocks: false, error: error);
@@ -417,7 +417,7 @@ namespace TensorSharp.Runtime.Scheduling
             SequenceStatus finalStatus,
             string reason,
             bool cacheBlocks,
-            Exception error = null)
+            Exception? error = null)
         {
             if (seq == null || seq.Status.IsFinished()) return false;
 
@@ -500,7 +500,7 @@ namespace TensorSharp.Runtime.Scheduling
         {
             // Find the candidate to preempt: highest sn (latest submission) and
             // lowest priority, not the requester.
-            SequenceState victim = null;
+            SequenceState? victim = null;
             int victimScore = int.MinValue;
             foreach (var s in _runningOrder)
             {
@@ -537,7 +537,7 @@ namespace TensorSharp.Runtime.Scheduling
             // Re-park at the front of the waiting queue so the victim resumes
             // soon - we don't want preemption to permanently demote a request.
             _waiting.AddFirst(victim);
-            _waitingIndex[victim.RequestId] = _waiting.First;
+            _waitingIndex[victim.RequestId] = _waiting.First!;
         }
 
         /// <summary>Look up a sequence's prompt prefix in the block hash index
@@ -672,7 +672,7 @@ namespace TensorSharp.Runtime.Scheduling
         /// </summary>
         private string EffectiveFingerprint(SequenceState seq)
         {
-            string media = seq?.MediaFingerprint;
+            string? media = seq?.MediaFingerprint;
             if (string.IsNullOrEmpty(media))
                 return _fingerprint;
             return string.Concat(_fingerprint, "mm:", media);

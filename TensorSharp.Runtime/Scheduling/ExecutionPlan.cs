@@ -104,11 +104,11 @@ namespace TensorSharp.Runtime.Scheduling
     public sealed record ExecutionPlan
     {
         /// <summary>Paths to try, in priority order. Never empty.</summary>
-        public IReadOnlyList<ExecutionPathKind> Candidates { get; init; }
+        public required IReadOnlyList<ExecutionPathKind> Candidates { get; init; }
 
         /// <summary>Why paths that could plausibly have served this step were
         /// not selected.</summary>
-        public IReadOnlyList<ExecutionPathRejection> Rejections { get; init; }
+        public required IReadOnlyList<ExecutionPathRejection> Rejections { get; init; }
 
         /// <summary>Speculative decoding was requested but is unprofitable on
         /// this backend; the executor surfaces a one-time operator notice.</summary>
