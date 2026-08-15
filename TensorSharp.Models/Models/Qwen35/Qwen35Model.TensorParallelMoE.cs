@@ -69,7 +69,7 @@ namespace TensorSharp.Models
             _tpCudaMoEUsable = false;
 
             if (!IsTensorParallel || _backend != BackendType.Cuda
-                || !s_qwenCudaMoeOnDeviceEnabled || _numExperts <= 0)
+                || !(Options.CudaMoeOnDevice ?? s_qwenCudaMoeOnDeviceEnabled) || _numExperts <= 0)
                 return;
 
             int tp = TpDegree;
@@ -226,7 +226,7 @@ namespace TensorSharp.Models
             // batched matmul and the on-device kernels are opt-in — the TP fallback
             // is the naive per-(token, expert) loop, so on-device wins for prefill
             // too. TS_TP_MOE_PREFILL_ONDEVICE=0 forces the host path.
-            if (seqLen > 1 && (seqLen > CudaMaxGridDim || !s_tpMoePrefillOnDevice))
+            if (seqLen > 1 && (seqLen > CudaMaxGridDim || !(_opts.TpMoePrefillOnDevice ?? s_tpMoePrefillOnDevice)))
                 return null;
             if (_tpGroup.GetAllocator(rank) is not CudaAllocator alloc)
                 return null;

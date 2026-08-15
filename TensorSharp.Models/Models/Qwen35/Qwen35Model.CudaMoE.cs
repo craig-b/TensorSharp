@@ -53,7 +53,7 @@ namespace TensorSharp.Models
             _qwenCudaMoETablesReady = true;
             _qwenCudaMoEUsable = false;
 
-            if (_backend != BackendType.Cuda || !s_qwenCudaMoeOnDeviceEnabled
+            if (_backend != BackendType.Cuda || !(Options.CudaMoeOnDevice ?? s_qwenCudaMoeOnDeviceEnabled)
                 || _numExperts <= 0 || _allocator is not CudaAllocator cudaAllocator)
                 return;
             // Under TP the expert weights were moved into _tpQuantWeights and the

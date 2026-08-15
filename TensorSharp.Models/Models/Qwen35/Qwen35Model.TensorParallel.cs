@@ -148,7 +148,7 @@ namespace TensorSharp.Models
 
         private unsafe void TraceLayer(Tensor hidden, int layer, string tag)
         {
-            if (!LayerTraceEnabled || _layerTraceForwards > 0 || hidden == null)
+            if (!(_opts.LayerTrace ?? LayerTraceEnabled) || _layerTraceForwards > 0 || hidden == null)
                 return;
 
             long n = hidden.ElementCount();
@@ -1390,7 +1390,7 @@ namespace TensorSharp.Models
             normed.Dispose();
 
             long t2 = Stopwatch.GetTimestamp();
-            if (LayerTraceEnabled && _layerTraceForwards <= 1)
+            if ((_opts.LayerTrace ?? LayerTraceEnabled) && _layerTraceForwards <= 1)
                 Console.WriteLine($"[TRACE-lm] columnParallel={_tpLmHeadKey != null} " +
                     $"activeRank={(IsGgmlBackend ? GgmlBasicOps.GetActiveRank() : -1)}");
             if (_tpLmHeadKey != null)

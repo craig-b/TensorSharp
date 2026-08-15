@@ -224,7 +224,7 @@ namespace TensorSharp.Models
             _tpFusedAttnChecked = true;
 
             _tpFusedAttnReady =
-                _tpFusedBlocksEnabled &&
+                (_opts.TpFused ?? _tpFusedBlocksEnabled) &&
                 IsGgmlBackend &&
                 IsTensorParallel &&
                 // One driving thread submits every rank, so this is a

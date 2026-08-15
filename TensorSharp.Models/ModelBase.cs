@@ -516,8 +516,14 @@ namespace TensorSharp.Models
         protected int _forwardCount;
         protected Stopwatch _forwardSw = new Stopwatch();
 
-        protected ModelBase(string ggufPath, BackendType backend, int tpDegree = 1, ITensorParallelGroup tpGroup = null)
+        /// <summary>Per-instance tuning overrides; never null. An unset (null)
+        /// property falls through to the knob's existing env-var read.</summary>
+        public ModelOptions Options { get; }
+
+        protected ModelBase(string ggufPath, BackendType backend, int tpDegree = 1, ITensorParallelGroup tpGroup = null,
+            ModelOptions options = null)
         {
+            Options = options ?? ModelOptions.Default;
             _backend = backend;
             // The pure-C# CPU backend must never touch native (ggml P/Invoke) dequant — route
             // every dequant/row-size through the managed implementation (bit-exact vs native,
@@ -1727,8 +1733,8 @@ namespace TensorSharp.Models
             // pointers) need it to remain mapped.
             if (mappedHostViews == 0 && preloadedCount > 0)
                 _gguf?.Dispose();
-            else if (_gguf != null && string.Equals(
-                Environment.GetEnvironmentVariable("TS_MLX_MLOCK_GGUF") ?? "1", "1", StringComparison.Ordinal))
+            else if (_gguf != null && (Options.MlxMlockGguf ?? string.Equals(
+                Environment.GetEnvironmentVariable("TS_MLX_MLOCK_GGUF") ?? "1", "1", StringComparison.Ordinal)))
             {
                 // Pin the GGUF mmap region in physical RAM. Without this,
                 // macOS treats file-backed pages as evictable and the kernel
@@ -2391,7 +2397,7 @@ namespace TensorSharp.Models
 
         protected unsafe bool TryGgmlF32LinearResident(Tensor result, Tensor input, Tensor w)
         {
-            if (!GgmlF32ResidentLinearEnabled)
+            if (!(Options.GgmlF32Resident ?? GgmlF32ResidentLinearEnabled))
                 return false;
             if (!IsGgmlBackend || w == null || w.DimensionCount != 2 || !w.IsContiguous()
                 || w.ElementType != DType.Float32 || input.ElementType != DType.Float32)
@@ -2692,7 +2698,7 @@ namespace TensorSharp.Models
         protected bool TryFusedDenseSwiGLUFFNInto(
             Tensor residual, string normWeightName, string gateUpWeightName, string downWeightName)
         {
-            if (_disableFusedDenseFFN)
+            if (Options.FusedDenseFfn.HasValue ? !Options.FusedDenseFfn.Value : _disableFusedDenseFFN)
                 return false;
             if (!IsGgmlBackend || residual == null || residual.DimensionCount != 2)
                 return false;
@@ -2739,7 +2745,7 @@ namespace TensorSharp.Models
         protected Tensor TryFusedDenseFFNProject(
             Tensor input, string normWeightName, string gateUpWeightName, string downWeightName, int actType)
         {
-            if (_disableFusedDenseFFN)
+            if (Options.FusedDenseFfn.HasValue ? !Options.FusedDenseFfn.Value : _disableFusedDenseFFN)
                 return null;
             if (!IsGgmlBackend || input == null || input.DimensionCount != 2)
                 return null;
@@ -3444,7 +3450,7 @@ namespace TensorSharp.Models
             // is nothing to overlap, and it is not the validated configuration:
             // it was measured to produce wrong results there, while the generic
             // per-rank path is correct. Require a genuine multi-GPU group.
-            if (!TpFusedMatmulEnabled || !IsGgmlBackend || _ggmlContext == null ||
+            if (!(Options.GgmlTpFusedMatmul ?? TpFusedMatmulEnabled) || !IsGgmlBackend || _ggmlContext == null ||
                 TpDegree < 2 || _ggmlContext.Degree != TpDegree)
                 return false;
 
@@ -4505,7 +4511,7 @@ namespace TensorSharp.Models
 
         protected bool TryCopyHeadFirstToCacheMlx(Tensor cache, Tensor src, int startPos, int seqLen, bool circular = false)
         {
-            if (string.Equals(Environment.GetEnvironmentVariable("TS_MLX_DEVICE_KV_COPY"), "0", StringComparison.Ordinal))
+            if (!(Options.MlxDeviceKvCopy ?? !string.Equals(Environment.GetEnvironmentVariable("TS_MLX_DEVICE_KV_COPY"), "0", StringComparison.Ordinal)))
                 return false;
 
             if (circular)
@@ -4534,7 +4540,7 @@ namespace TensorSharp.Models
             // fused path declines (e.g. dtype mismatch, sub-view storage).
             // Disable via TS_MLX_FUSED_KV_WRITE=0 to A/B against the per-head
             // path (helpful when investigating slice_update perf regressions).
-            if (!string.Equals(Environment.GetEnvironmentVariable("TS_MLX_FUSED_KV_WRITE"), "0", StringComparison.Ordinal)
+            if ((Options.MlxFusedKvWrite ?? !string.Equals(Environment.GetEnvironmentVariable("TS_MLX_FUSED_KV_WRITE"), "0", StringComparison.Ordinal))
                 && MlxFusedOps.TryWriteKvCacheBlock(cache, src, startPos, seqLen))
                 return true;
 
@@ -5548,7 +5554,7 @@ namespace TensorSharp.Models
         /// </summary>
         public virtual void WarmUpKernels()
         {
-            if (_backend == BackendType.Mlx && !IsMlxKernelWarmupEnabled())
+            if (_backend == BackendType.Mlx && !(Options.MlxKernelWarmup ?? IsMlxKernelWarmupEnabled()))
             {
                 long nativeBytes = MlxNativePreloadableQuantizedBytes();
                 Console.WriteLine(
@@ -5592,7 +5598,7 @@ namespace TensorSharp.Models
             // so prime it with a longer dummy prompt here. Previously this ran for
             // MLX only. Guarded so a model that dislikes a dummy refill can never
             // block startup; disable entirely via TS_PREFILL_WARMUP=0.
-            if (!string.Equals(Environment.GetEnvironmentVariable("TS_PREFILL_WARMUP"), "0", StringComparison.Ordinal))
+            if (Options.PrefillWarmup ?? !string.Equals(Environment.GetEnvironmentVariable("TS_PREFILL_WARMUP"), "0", StringComparison.Ordinal))
             {
                 // MLX, Metal, and the managed CPU backend stay conservative (short
                 // prompt); discrete CUDA/Vulkan GGML paths use a longer one to reach
@@ -5666,6 +5672,12 @@ namespace TensorSharp.Models
                 // was ~300-500 ms slower than warm (gallocr growth + residency)
                 // with the old 1024 warmup; with 2048 it starts warm.
                 int? explicitWarmupLengthValue = null;
+                if (Options.PrefillWarmupLength.HasValue)
+                {
+                    if (Options.PrefillWarmupLength.Value >= 2)
+                        explicitWarmupLengthValue = Options.PrefillWarmupLength.Value;
+                }
+                else
                 {
                     string wl = Environment.GetEnvironmentVariable("TS_PREFILL_WARMUP_LEN");
                     if (!string.IsNullOrEmpty(wl) && int.TryParse(wl, out int wlv) && wlv >= 2)
@@ -5930,7 +5942,7 @@ namespace TensorSharp.Models
         public void YieldGpuComputeLock()
         {
             // Allow disabling via env var for A/B testing or troubleshooting.
-            if (string.Equals(Environment.GetEnvironmentVariable("TS_ENCODER_YIELD"), "0", StringComparison.Ordinal))
+            if (!(Options.EncoderYield ?? !string.Equals(Environment.GetEnvironmentVariable("TS_ENCODER_YIELD"), "0", StringComparison.Ordinal)))
                 return;
             try { Monitor.Exit(GpuComputeLock); }
             catch (SynchronizationLockException) { return; } // not held — nothing to yield
@@ -6228,8 +6240,11 @@ namespace TensorSharp.Models
         /// <param name="draftModelPath">Optional speculative-decoding draft
         /// model (DeepSeek V4's DSpark support GGUF); ignored by architectures
         /// that have no drafter.</param>
+        /// <param name="options">Optional typed tuning overrides (see
+        /// <see cref="ModelOptions"/>); null means pure env-var behaviour.
+        /// Architectures not yet converted to typed options ignore it.</param>
         public static ModelBase Create(string ggufPath, BackendType backend, int tpDegree = 1, ITensorParallelGroup tpGroup = null,
-            string draftModelPath = null)
+            string draftModelPath = null, ModelOptions options = null)
         {
             if (tpGroup == null && tpDegree <= 1)
             {
@@ -6251,7 +6266,7 @@ namespace TensorSharp.Models
                 // RoPE when the t/h/w position components are equal, which they are
                 // for text tokens, so the vision tower (mmproj) is not required.
                 "qwen3" or "qwen2" or "qwen2vl" or "qwen2_vl" => new Qwen3Model(ggufPath, backend, tpDegree, tpGroup),
-                "qwen35" or "qwen35moe" or "qwen3next" => new Qwen35Model(ggufPath, backend, tpDegree, tpGroup),
+                "qwen35" or "qwen35moe" or "qwen3next" => new Qwen35Model(ggufPath, backend, tpDegree, tpGroup, options),
                 "gemma3" => new Gemma3Model(ggufPath, backend, tpDegree, tpGroup),
                 "gemma4" => new Gemma4Model(ggufPath, backend, tpDegree, tpGroup),
                 "diffusion-gemma" or "diffusion_gemma" => new DiffusionGemmaModel(ggufPath, backend),

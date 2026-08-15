@@ -386,7 +386,8 @@ namespace TensorSharp.Models
             // pure-decode run (no op-by-op interleaving) the device pool persists
             // via in-place set_rows, so the mirror is only needed for consistency
             // across path transitions — skip it with TS_QWEN35_BFD_NOMIRROR=1.
-            if (!string.Equals(Environment.GetEnvironmentVariable("TS_QWEN35_BFD_NOMIRROR"), "1", StringComparison.Ordinal))
+            bool noMirror = _opts.BfdNoMirror ?? string.Equals(Environment.GetEnvironmentVariable("TS_QWEN35_BFD_NOMIRROR"), "1", StringComparison.Ordinal);
+            if (!noMirror)
                 MirrorNewSlotsToHostPool(slotMapping, numTokens, kvFlat);
             return hiddenStates;
         }

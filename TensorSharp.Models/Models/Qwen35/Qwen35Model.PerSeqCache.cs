@@ -90,7 +90,7 @@ namespace TensorSharp.Models
         /// recurrent/attention state.</summary>
         public bool SupportsPerSequenceFusedForward =>
             !_fdSpecSessionActive
-            && ((_backend == BackendType.GgmlCuda && _fullDecodeEnabled && !_fdUnsupported)
+            && ((_backend == BackendType.GgmlCuda && (_opts.FullDecode ?? _fullDecodeEnabled) && !_fdUnsupported)
                 || _backend == BackendType.GgmlMetal);
 
         public bool HasFusedSequenceCache(string requestId)

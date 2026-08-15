@@ -306,7 +306,7 @@ namespace TensorSharp.Models
         // Conservative placeholder until InitGDNBuffers resolves the
         // backend-dependent default (env override > per-backend value).
         private int _gdnChunkPrefillThreshold = GdnChunkSize;
-        private bool _gdnDisableChunkedPrefill = GdnChunkedPrefillDisabledEnv;
+        private bool _gdnDisableChunkedPrefill;
         private long _gdnChunkedTicks;       // Total time spent in the chunked path
         private long _gdnPerTokenTicks;      // Total time spent in the per-token path (prefill only)
         private long _gdnCudaNativeTicks;    // Total time spent in the direct CUDA native GDN path
@@ -546,10 +546,15 @@ namespace TensorSharp.Models
             // GdnChunkedPrefillMinSeqLenEnv). The env override, when set,
             // always wins; _backend is only known here (instance init), not
             // at static-field time.
-            if (GdnChunkedPrefillMinSeqLenEnv > 0)
-                _gdnChunkPrefillThreshold = GdnChunkedPrefillMinSeqLenEnv;
+            int gdnChunkPrefillMinSeqLen = _opts.GdnChunkPrefillMinSeqLen ?? GdnChunkedPrefillMinSeqLenEnv;
+            if (gdnChunkPrefillMinSeqLen > 0)
+                _gdnChunkPrefillThreshold = gdnChunkPrefillMinSeqLen;
             else
                 _gdnChunkPrefillThreshold = _backend == BackendType.GgmlCuda ? 2 : 6;
+
+            _gdnDisableChunkedPrefill = _opts.GdnChunkedPrefill.HasValue
+                ? !_opts.GdnChunkedPrefill.Value
+                : GdnChunkedPrefillDisabledEnv;
 
             int qkvDim = _headKDim * _numKHeads * 2 + _headVDim * _numVHeads;
             int qkDim = _headKDim * _numKHeads;
@@ -750,7 +755,7 @@ namespace TensorSharp.Models
         /// </summary>
         private unsafe bool TryFusedRecLayerPrefill(Tensor hidden, int layer, int seqLen)
         {
-            if (!_useFusedRecPrefill) return false;
+            if (!(_opts.FusedRecPrefill ?? _useFusedRecPrefill)) return false;
             // ggml_cuda AND ggml_metal: the native kernel is backend-agnostic
             // (ggml_ssm_conv + ggml_gated_delta_net + ggml_cpy, NO ggml_set_rows)
             // and allocates a dedicated per-graph buffer (ggml_backend_alloc_ctx_tensors,
@@ -1245,7 +1250,7 @@ namespace TensorSharp.Models
             // graph. CUDA/Vulkan use dynamic SET_ROWS KV writes; Metal moves CPY
             // destination views before replay, avoiding its problematic SET_ROWS
             // shape. GDN recurrence and MoE top-K routing remain device-resident.
-            if (!_fullDecodeEnabled || _fdSpecSessionActive
+            if (!(_opts.FullDecode ?? _fullDecodeEnabled) || _fdSpecSessionActive
                 || (_backend != BackendType.GgmlCuda && _backend != BackendType.GgmlMetal
                     && _backend != BackendType.GgmlVulkan))
                 return false;
@@ -1262,7 +1267,7 @@ namespace TensorSharp.Models
             (IntPtr ptr, int type, long ne0, long ne1, long bytes) tokenEmbedding = default;
             if (tokenInput)
             {
-                if (!_metalTokenInputEnabled ||
+                if (!(_opts.MetalTokenInput ?? _metalTokenInputEnabled) ||
                     _backend != BackendType.GgmlMetal ||
                     tokenId >= Config.VocabSize)
                     return false;
@@ -1663,7 +1668,7 @@ namespace TensorSharp.Models
             // cpy views at a graph-baked offset, matching llama.cpp's linear KV-store
             // strategy and avoiding Metal's problematic multi-dimensional set_rows
             // path. Prefill activations use the lifetime-packed reuse gallocr.
-            if (!_fusedVerifyEnabled || _fvUnsupported
+            if (!(_opts.FusedVerify ?? _fusedVerifyEnabled) || _fvUnsupported
                 || (_backend != BackendType.GgmlCuda && _backend != BackendType.GgmlVulkan
                     && _backend != BackendType.GgmlMetal))
                 return false;
@@ -1775,7 +1780,7 @@ namespace TensorSharp.Models
             // TSGgml_Qwen35ModelVerify) so both sides agree per call.
             bool residentThisCall = ShouldUseVerifyResidentState(
                 _backend,
-                _fvResidentEnabled,
+                _opts.VerifyResident ?? _fvResidentEnabled,
                 nLogitRows,
                 seqLen);
 
@@ -2015,9 +2020,9 @@ namespace TensorSharp.Models
         internal unsafe bool TryFusedMtpBlock(Tensor x, int startPos, int seqLen,
             float[] normedOut, float[] logitsOut, int nLogitRows)
         {
-            if (!_mtpFusedDraftEnabled)
+            if (!(_opts.MtpFusedDraft ?? _mtpFusedDraftEnabled))
                 return false;
-            if (!_fusedVerifyEnabled || _fvUnsupported
+            if (!(_opts.FusedVerify ?? _fusedVerifyEnabled) || _fvUnsupported
                 || (_backend != BackendType.GgmlCuda && _backend != BackendType.GgmlVulkan))
                 return false;
             if (!HasMtp || x == null || seqLen < 1)
@@ -2227,7 +2232,7 @@ namespace TensorSharp.Models
                     // only shows up in the first decode token. See the comment on
                     // MlxFusedOps.Qwen35GdnPackedKernelsEnabled.
                     && (seqLen == 1 ||
-                        !string.Equals(Environment.GetEnvironmentVariable("TS_MLX_QWEN35_GDN_PACKED_KERNELS"), "0", StringComparison.Ordinal)))
+                        (_opts.MlxGdnPackedKernels ?? !string.Equals(Environment.GetEnvironmentVariable("TS_MLX_QWEN35_GDN_PACKED_KERNELS"), "0", StringComparison.Ordinal))))
                 {
                     gated = seqLen == 1 ? _gdnGatedOutT : new Tensor(_allocator, DType.Float32, seqLen, _ssmDInner);
                     ranMlxNativeGdn = _mlxGdnCache[layer].TryRunQwen35Packed(
@@ -2309,7 +2314,7 @@ namespace TensorSharp.Models
                     }
                 }
 
-                if (!ranMlxNativeGdn && CudaGdnNativeEnabledEnv && _backend == BackendType.Cuda)
+                if (!ranMlxNativeGdn && (_opts.CudaGdnNative ?? CudaGdnNativeEnabledEnv) && _backend == BackendType.Cuda)
                 {
                     bool reuseDecodePacked = seqLen == 1 && _gdnDecodePackedBuf != null;
                     Tensor cudaPacked = reuseDecodePacked
@@ -2369,7 +2374,7 @@ namespace TensorSharp.Models
                     && _ssmAW[layer] != null
                     && _ssmNormW[layer] != null;
 
-                if (useChunked && GdnVerifyChunkedEnv && seqLen > 1)
+                if (useChunked && (_opts.GdnVerifyChunked ?? GdnVerifyChunkedEnv) && seqLen > 1)
                 {
                     // Verification mode: run the chunked path on a snapshot of the
                     // recurrent state, then restore the state, run the per-token
@@ -2486,7 +2491,7 @@ namespace TensorSharp.Models
             out Tensor gated)
         {
             gated = null;
-            if (!CudaGdnNativeEnabledEnv
+            if (!(_opts.CudaGdnNative ?? CudaGdnNativeEnabledEnv)
                 || _backend != BackendType.Cuda
                 || packedInput == null
                 || _cudaGdnConvStateTensor?[layer] == null

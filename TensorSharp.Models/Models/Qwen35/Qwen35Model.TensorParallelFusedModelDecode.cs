@@ -87,7 +87,7 @@ namespace TensorSharp.Models
                 return _tpFdReady;
             _tpFdChecked = true;
             _tpFdReady =
-                _tpFdEnabled && IsGgmlBackend && IsTensorParallel
+                (_opts.TpFusedDecode ?? _tpFdEnabled) && IsGgmlBackend && IsTensorParallel
                 // One driving thread submits every rank: single-process only.
                 && GlobalTpDegree == TpDegree
                 // The graph folds the column-parallel LM head per rank.
@@ -525,7 +525,7 @@ namespace TensorSharp.Models
         /// </summary>
         private unsafe bool TryQwen35FusedModelPrefillTP(Tensor hidden, int seqLen, int startPos, float[] logitsOut)
         {
-            if (!_tpPfEnabled || _tpPfFailed || seqLen < 2)
+            if (!(_opts.TpFusedPrefill ?? _tpPfEnabled) || _tpPfFailed || seqLen < 2)
                 return false;
             if (!TpFusedModelDecodeAvailable() || logitsOut == null || logitsOut.Length < Config.VocabSize)
                 return false;

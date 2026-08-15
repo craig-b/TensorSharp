@@ -17,7 +17,7 @@ namespace TensorSharp.Models
         private unsafe Tensor TryCudaMoEForwardPrefillGrouped(
             Tensor input, float* routerData, bool routeRowsAreLogits, int layer, int seqLen)
         {
-            if (!s_qwenCudaMoeGroupedPrefill
+            if (!(Options.CudaMoePrefillGrouped ?? s_qwenCudaMoeGroupedPrefill)
                 || _backend != BackendType.Cuda
                 || seqLen <= 1
                 || input?.Storage is not CudaStorage
