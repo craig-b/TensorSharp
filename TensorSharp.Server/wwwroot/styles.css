@@ -831,3 +831,7 @@ button.primary:hover { background: var(--accent-hover); }
   justify-content: flex-end;
   margin-top: 8px;
 }
+
+/* Initial-hidden helper; replaces the inline style="display:none" attributes
+   so a strict CSP style-src can be enabled later. */
+.hidden { display: none; }
