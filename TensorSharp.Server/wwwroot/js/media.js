@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { scrollChatToBottom } from './chat.js';
+import { apiFetch, protectedMediaUrl, setProtectedDownload } from './apikey.js';
 
 export async function runImageEdit(userMsg, bubbleText, statsDiv, queueDiv) {
   if (queueDiv) queueDiv.classList.add('hidden');
@@ -25,7 +26,7 @@ export async function runImageEdit(userMsg, bubbleText, statsDiv, queueDiv) {
   }
 
   try {
-    const res = await fetch('/api/image-edit/stream', {
+    const res = await apiFetch('/api/image-edit/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imagePaths: userMsg.imagePaths, prompt: userMsg.content || '' }),
@@ -62,11 +63,11 @@ export async function runImageEdit(userMsg, bubbleText, statsDiv, queueDiv) {
             bubbleText.textContent = 'Image edit failed: ' + data.error;
             statsDiv.textContent = 'Failed';
           } else {
-            ensureImg().src = data.url + '?t=' + Date.now();  // final full-resolution result
+            ensureImg().src = await protectedMediaUrl(data.url + '?t=' + Date.now());  // final full-resolution result
             img.alt = 'edited image';
             const dl = document.createElement('a');
-            dl.href = data.url;
             dl.setAttribute('download', '');
+            await setProtectedDownload(dl, data.url);
             dl.textContent = '⬇ Download image';
             dl.style.cssText = 'display:inline-block;margin-top:8px;color:var(--accent);';
             bubbleText.appendChild(dl);
@@ -100,7 +101,7 @@ export async function runVideoGenerate(userMsg, bubbleText, statsDiv, queueDiv) 
   try {
     const payload = { prompt: userMsg.content || '' };
     if (i2vImage) payload.imagePath = i2vImage;
-    const res = await fetch('/api/video-generate/stream', {
+    const res = await apiFetch('/api/video-generate/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -155,7 +156,7 @@ export async function runVideoGenerate(userMsg, bubbleText, statsDiv, queueDiv) 
           } else {
             bubbleText.innerHTML = '';
             const vid = document.createElement('video');
-            vid.src = data.url;
+            vid.src = await protectedMediaUrl(data.url);
             vid.controls = true;
             vid.autoplay = true;
             vid.loop = true;
@@ -167,8 +168,8 @@ export async function runVideoGenerate(userMsg, bubbleText, statsDiv, queueDiv) 
             vid.style.display = 'block';
             bubbleText.appendChild(vid);
             const dl = document.createElement('a');
-            dl.href = data.url;
             dl.setAttribute('download', '');
+            await setProtectedDownload(dl, data.url);
             dl.textContent = '⬇ Download video';
             dl.style.cssText = 'display:inline-block;margin-top:8px;color:var(--accent);';
             bubbleText.appendChild(dl);

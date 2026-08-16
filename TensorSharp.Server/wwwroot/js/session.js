@@ -1,10 +1,11 @@
 import { state, el, DEFAULT_SESSION_ID } from './state.js';
 import { updateStatusBadge } from './status.js';
+import { apiFetch } from './apikey.js';
 import { renderEmptyState } from './chat.js';
 
 export async function fetchServerState() {
   try {
-    const res = await fetch('/api/models');
+    const res = await apiFetch('/api/models');
     const data = await res.json();
     state.serverDefaultMaxTokens = data.defaultMaxTokens || 20000;
     updateStatusBadge(data);
@@ -19,7 +20,7 @@ export async function fetchServerState() {
 
 export async function createSession() {
   try {
-    const res = await fetch('/api/sessions', { method: 'POST' });
+    const res = await apiFetch('/api/sessions', { method: 'POST' });
     const data = await res.json();
     if (data && data.sessionId) {
       state.currentSessionId = data.sessionId;
@@ -36,7 +37,7 @@ export async function disposeCurrentSession() {
   state.currentSessionId = null;
   if (id === DEFAULT_SESSION_ID) return;
   try {
-    await fetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE' });
+    await apiFetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE' });
   } catch (e) {
     console.warn('Failed to dispose chat session:', e);
   }
@@ -60,7 +61,7 @@ export function initSessionLifecycle() {
       const id = state.currentSessionId;
       state.currentSessionId = null;
       try {
-        fetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE', keepalive: true });
+        apiFetch('/api/sessions/' + encodeURIComponent(id), { method: 'DELETE', keepalive: true });
       } catch {}
     }
   });

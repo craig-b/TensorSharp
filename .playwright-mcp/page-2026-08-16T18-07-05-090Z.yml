@@ -1,0 +1,37 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading [level=1] [ref=e3]:
+      - link "🌐 TensorSharp.ai ↗" [ref=e4] [cursor=pointer]:
+        - /url: https://tensorsharp.ai
+        - text: 🌐 TensorSharp.ai
+        - generic [ref=e5]: ↗
+    - generic [ref=e6]:
+      - 'generic "Live inference load: 1 processing concurrently, 0 waiting in queue" [ref=e26]': 1 request processing
+      - generic [ref=e7]: model.gguf (qwen35) | ggml_cpu
+      - button "➕ New Chat" [ref=e8] [cursor=pointer]
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e29]:
+        - generic [ref=e30]: U
+        - generic [ref=e31]:
+          - text: Say the word HELLO and stop.
+          - generic [ref=e55]:
+            - button "✎ Edit" [ref=e56] [cursor=pointer]
+            - button "↩ Revert" [ref=e57] [cursor=pointer]
+      - generic [ref=e37]:
+        - generic [ref=e39] [cursor=pointer]:
+          - generic [ref=e40]: ▶
+          - text: Reasoning
+        - generic [ref=e47]: 256 tokens · 18.8s · 13.6 tok/s · KV 0/18 (0%) · truncated (max tokens reached)
+      - generic [ref=e61]:
+        - generic [ref=e62] [cursor=pointer]:
+          - generic [ref=e63]: ▶
+          - text: Reasoning
+        - generic [ref=e64]: "Thinking Process: 1. **Analyze the Request:** The user is asking me to \"say\" something. This usually means they want a response or an output. 2. **Identify the Intent:** Is this a test of ability? No, no intent to follow instructions. It seems like a direct instruction without any specific content constraint. 3. **Determine the appropriate action.** I"
+    - generic [ref=e15]:
+      - generic "Enable reasoning / chain-of-thought output" [ref=e17] [cursor=pointer]: Reasoning
+      - generic [ref=e21]:
+        - textbox "Type a message..." [ref=e22]
+        - generic [ref=e23]:
+          - button "📎" [ref=e24] [cursor=pointer]
+          - button "■" [ref=e69] [cursor=pointer]

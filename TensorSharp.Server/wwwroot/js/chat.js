@@ -3,6 +3,7 @@ import { escapeHtml } from './util.js';
 import { createSession } from './session.js';
 import { describeAttachments, uploadUrlForAttachment } from './attachments.js';
 import { runImageEdit, runVideoGenerate } from './media.js';
+import { apiFetch, hydrateProtectedMedia } from './apikey.js';
 
 const autoScrollThreshold = 32;
 const editOriginalHtml = new Map();
@@ -157,7 +158,7 @@ export async function requestAssistantResponse() {
       state.needsCacheReset = false;
     }
 
-    let res = await fetch('/api/chat', {
+    let res = await apiFetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(chatPayload),
@@ -171,7 +172,7 @@ export async function requestAssistantResponse() {
       if (state.currentSessionId) {
         chatPayload.sessionId = state.currentSessionId;
         chatPayload.newChat = true;
-        res = await fetch('/api/chat', {
+        res = await apiFetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(chatPayload),
@@ -431,7 +432,7 @@ export function addUserBubble(text, attachments, historyIdx) {
   let mediaHtml = '';
   attachments.forEach(att => {
     if (att.mediaType === 'image') {
-      mediaHtml += `<div class="media-preview"><img src="${escapeHtml(uploadUrlForAttachment(att))}" alt="uploaded"></div>`;
+      mediaHtml += `<div class="media-preview"><img data-protected-src="${escapeHtml(uploadUrlForAttachment(att))}" alt="uploaded"></div>`;
     } else if (att.mediaType === 'video') {
       mediaHtml += `<div class="media-preview"><div class="audio-label">&#x1F3AC; ${escapeHtml(att.fileName || '')}</div></div>`;
     } else if (att.mediaType === 'audio') {
@@ -444,7 +445,7 @@ export function addUserBubble(text, attachments, historyIdx) {
         const pageStatus = Number.isInteger(att.extractedPageCount) && Number.isInteger(att.pageCount)
           ? `${att.extractedPageCount}/${att.pageCount} pages`
           : `${n} page image${n > 1 ? 's' : ''}`;
-        mediaHtml += `<div class="media-preview"><img src="${escapeHtml(att.frameUrls[0])}" alt="pdf page"></div>`;
+        mediaHtml += `<div class="media-preview"><img data-protected-src="${escapeHtml(att.frameUrls[0])}" alt="pdf page"></div>`;
         mediaHtml += `<div class="audio-label">&#x1F4C4; ${escapeHtml(att.fileName || '')} (${pageStatus})</div>`;
       } else {
         mediaHtml += `<div class="media-preview"><div class="audio-label">&#x1F4C4; ${escapeHtml(att.fileName || '')}</div></div>`;
@@ -461,6 +462,7 @@ export function addUserBubble(text, attachments, historyIdx) {
       </div>
     </div>`;
   el.chatContainer.appendChild(div);
+  hydrateProtectedMedia(div);
   scrollChatToBottom();
 }
 

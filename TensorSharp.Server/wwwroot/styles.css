@@ -535,6 +535,56 @@ button.primary:hover { background: var(--accent-hover); }
   line-height: 1.5;
 }
 
+.api-key-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px var(--layout-gutter);
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.api-key-banner .api-key-msg {
+  color: var(--text);
+}
+
+.api-key-banner form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.api-key-banner input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  width: min(320px, 60vw);
+}
+
+.api-key-banner input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.api-key-banner button {
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.api-key-banner button:hover {
+  background: var(--accent-hover);
+}
+
 .reasoning-toggle {
   display: inline-flex;
   align-items: center;

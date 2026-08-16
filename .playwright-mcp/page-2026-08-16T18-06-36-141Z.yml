@@ -1,0 +1,31 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading [level=1] [ref=e3]:
+      - link "🌐 TensorSharp.ai ↗" [ref=e4] [cursor=pointer]:
+        - /url: https://tensorsharp.ai
+        - text: 🌐 TensorSharp.ai
+        - generic [ref=e5]: ↗
+    - generic [ref=e6]:
+      - generic [ref=e7]: model.gguf (qwen35) | ggml_cpu
+      - button "➕ New Chat" [ref=e8] [cursor=pointer]
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e29]:
+        - generic [ref=e30]: U
+        - generic [ref=e31]:
+          - text: Reply with exactly the word PONG.
+          - generic [ref=e32]:
+            - button "✎ Edit" [ref=e33] [cursor=pointer]
+            - button "↩ Revert" [ref=e34] [cursor=pointer]
+      - generic [ref=e37]:
+        - generic [ref=e39] [cursor=pointer]:
+          - generic [ref=e40]: ▶
+          - text: Reasoning
+        - generic [ref=e47]: 256 tokens · 18.8s · 13.6 tok/s · KV 0/18 (0%) · truncated (max tokens reached)
+    - generic [ref=e15]:
+      - generic "Enable reasoning / chain-of-thought output" [ref=e17] [cursor=pointer]: Reasoning
+      - generic [ref=e21]:
+        - textbox "Type a message..." [ref=e22]
+        - generic [ref=e23]:
+          - button "📎" [ref=e24] [cursor=pointer]
+          - button "➤" [ref=e48] [cursor=pointer]

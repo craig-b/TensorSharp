@@ -1,4 +1,5 @@
 import { state, el } from './state.js';
+import { apiFetch } from './apikey.js';
 
 export async function handleFileSelect(event) {
   const files = Array.from(event.target.files);
@@ -16,7 +17,7 @@ export async function uploadOneFile(file) {
   formData.append('file', file);
 
   try {
-    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+    const res = await apiFetch('/api/upload', { method: 'POST', body: formData });
     const data = await res.json();
     if (data.ok) {
       state.pendingAttachments.push(data);

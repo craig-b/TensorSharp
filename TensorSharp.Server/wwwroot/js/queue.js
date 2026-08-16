@@ -1,4 +1,5 @@
 import { el } from './state.js';
+import { apiFetch } from './apikey.js';
 
 export function pluralReq(n) {
   return n === 1 ? '1 request' : `${n} requests`;
@@ -28,7 +29,7 @@ export function renderQueueBadge(processing, waiting) {
 
 export async function pollQueueStatus() {
   try {
-    const res = await fetch('/api/queue/status');
+    const res = await apiFetch('/api/queue/status');
     const data = await res.json();
     // `processing` is the count of requests being generated concurrently; older
     // servers only sent the boolean `busy`, so fall back to that.

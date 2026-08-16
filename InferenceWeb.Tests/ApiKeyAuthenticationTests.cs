@@ -237,6 +237,7 @@ public class ApiKeyAuthenticationTests : IDisposable
     [Theory]
     [InlineData("/health")]
     [InlineData("/")]
+    [InlineData("/favicon.ico")]
     public async Task Middleware_HealthAndUiShell_AreAlwaysExempt(string path)
     {
         bool nextCalled = false;

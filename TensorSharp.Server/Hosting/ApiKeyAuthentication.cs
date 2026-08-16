@@ -93,10 +93,13 @@ namespace TensorSharp.Server.Hosting
             // "/" stays open because it serves the Web UI shell via the
             // HealthEndpoints route (not the static-files middleware, which
             // runs before this gate) — the shell is public application code,
-            // and every API call it makes is still keyed.
+            // and every API call it makes is still keyed. /favicon.ico is
+            // shell content too: browsers request it unconditionally, and a
+            // gated response just puts a 401 in every page-load console.
             PathString path = context.Request.Path;
             if (path.Equals("/health", StringComparison.OrdinalIgnoreCase)
-                || !path.HasValue || path.Equals("/", StringComparison.Ordinal))
+                || !path.HasValue || path.Equals("/", StringComparison.Ordinal)
+                || path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase))
                 return _next(context);
 
             if (_options.ApiKeyScope == ApiKeyScope.External && IsLoopbackClient(context))
