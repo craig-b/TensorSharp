@@ -123,28 +123,6 @@ function renderEmptyState() {
     </div>`;
 }
 
-function legacyStatusBadge(data) {
-  currentLoadedModel = data.loaded || null;
-  currentArchitecture = data.architecture || null;
-
-  if (!currentLoadedModel) {
-    statusBadge.textContent = 'No model configured';
-    statusBadge.classList.remove('loaded');
-    return;
-  }
-
-  let statusText = currentLoadedModel + ' (' + (data.architecture || '?') + ')';
-  if (data.loadedBackend) {
-    statusText += ' · ' + data.loadedBackend;
-  }
-  if (data.loadedMmProj) {
-    statusText += ' + ' + data.loadedMmProj;
-  }
-
-  statusBadge.textContent = statusText;
-  statusBadge.classList.add('loaded');
-}
-
 function updateStatusBadge(data) {
   currentLoadedModel = data.loaded || null;
   currentArchitecture = data.architecture || null;
