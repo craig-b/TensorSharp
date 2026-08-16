@@ -1420,7 +1420,7 @@ namespace TensorSharp.Runtime.Scheduling
                 int id = tokenAt(k);
                 if (k == center) sb.Append('*');
                 sb.Append(id);
-                string piece = null;
+                string? piece = null;
                 try { piece = _model.Tokenizer?.Decode(new List<int> { id }); }
                 catch (Exception) { /* a lone special/partial token may not decode */ }
                 if (!string.IsNullOrEmpty(piece))
