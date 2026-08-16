@@ -271,6 +271,11 @@ StartupBanner.EmitBackendFallback(startupLogger, hostingOptions, configuredBacke
 // JSON without losing a single log line.
 app.UseApiExceptionHandling();
 app.UseTensorSharpRequestLogging();
+// Security headers on every response: a strict same-origin CSP for pages and
+// APIs, an inert sandbox policy for client-supplied /uploads content, plus
+// nosniff / referrer / frame headers. Registered via OnStarting, so it works
+// regardless of which downstream middleware writes the response.
+app.UseSecurityHeaders();
 // Convert a prompt-doesn't-fit-context failure into a 400. After request
 // logging so the rejection is still traced; before the endpoints so it covers
 // every protocol surface.
