@@ -158,7 +158,7 @@ namespace TensorSharp.Runtime
         /// and drop the <c>"null"</c> member, whose meaning <c>required</c>
         /// already carries.
         /// </summary>
-        private static string ReadSchemaType(JsonElement schema)
+        private static string? ReadSchemaType(JsonElement schema)
         {
             if (!schema.TryGetProperty("type", out JsonElement type))
                 return null;
@@ -167,12 +167,12 @@ namespace TensorSharp.Runtime
             if (type.ValueKind != JsonValueKind.Array)
                 return null;
 
-            string first = null;
+            string? first = null;
             foreach (JsonElement v in type.EnumerateArray())
             {
                 if (v.ValueKind != JsonValueKind.String)
                     continue;
-                string name = v.GetString();
+                string? name = v.GetString();
                 first ??= name;
                 if (name != "null")
                     return name;
@@ -2016,7 +2016,7 @@ namespace TensorSharp.Runtime
                     return e.GetDouble();
                 case JsonValueKind.True: return true;
                 case JsonValueKind.False: return false;
-                case JsonValueKind.Null: return null;
+                case JsonValueKind.Null: return null!;
                 case JsonValueKind.Array:
                 {
                     var list = new List<object>();
