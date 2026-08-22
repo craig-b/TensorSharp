@@ -35,9 +35,11 @@ namespace TensorSharp.Models
 
             switch (knob.Dialect.Value)
             {
-                case BoolDialect.LooseDefaultOn:
-                    // All sites: "0" → off; anything not in {"0","false"} → on.
-                    // "false" is off at some sites only → ambiguous.
+                case BoolDialect.LooseZeroOnly:
+                case BoolDialect.LooseZeroOrFalse:
+                    // Both loose families: "0" → off; anything not in
+                    // {"0","false"} → on. "false" is off in one family only →
+                    // ambiguous here; KnobResolver applies the exact dialect.
                     if (raw == "0") { normalized = "false"; return true; }
                     if (string.Equals(raw, "false", StringComparison.OrdinalIgnoreCase)) return false;
                     normalized = "true";
@@ -49,9 +51,10 @@ namespace TensorSharp.Models
                     if (raw == "0") { normalized = "false"; return true; }
                     return false;
 
-                case BoolDialect.InvertedDisable:
+                case BoolDialect.InvertedDisableOne:
+                case BoolDialect.InvertedDisableOneOrTrue:
                     // DISABLE_* var: "1" disables everywhere, "0" disables
-                    // nowhere. "true" disables at some sites only.
+                    // nowhere. "true" disables in one family only → ambiguous.
                     if (raw == "1") { normalized = "false"; return true; }
                     if (raw == "0") { normalized = "true"; return true; }
                     return false;

@@ -3,13 +3,13 @@ using System.Collections.Generic;
 
 namespace TensorSharp.Models
 {
-    /// <summary>Typed, per-instance overrides for the model-layer tuning knobs
+    /// <summary>Typed, per-instance values for the model-layer tuning knobs
     /// that have historically been environment-variable-only. The model-layer
     /// counterpart of the planner's <c>ExecutionOptions</c>: every property is
-    /// nullable and unset (null) means "exactly the existing env-var behaviour,
-    /// read at the same time with the same parse dialect", so passing no options
-    /// — or <see cref="Default"/> — is byte-identical to today. A set property
-    /// takes precedence over its env var for this model instance only.
+    /// nullable, and a property left unset (null) is filled from its env var —
+    /// with the knob's exact parse dialect — by <see cref="KnobResolver"/>
+    /// once at model construction. A set property takes precedence over its
+    /// env var for this model instance only.
     ///
     /// Plain init-only record by design: hosts can bind it from configuration
     /// (e.g. <c>IConfiguration.Bind</c>) and hand it to

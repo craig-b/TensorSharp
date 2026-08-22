@@ -643,10 +643,9 @@ namespace TensorSharp.Models
             return ForwardCore(new[] { tokens[lastIdx] });
         }
 
-        private static int ResolvePrefillChunkSize()
+        private int ResolvePrefillChunkSize()
         {
-            string env = Environment.GetEnvironmentVariable("TS_PREFILL_CHUNK");
-            if (!string.IsNullOrEmpty(env) && int.TryParse(env, out int v) && v > 0)
+            if (Options.PrefillChunk is int v && v > 0)
                 return v;
             return 512;
         }

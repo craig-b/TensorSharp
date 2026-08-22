@@ -459,11 +459,19 @@ Scheduler and MTP flags travel the same way via the ambient
 `SchedulerOverrides.Current` (`TensorSharp.Runtime/Scheduling`), since
 `BatchExecutor` re-reads its options every step and has no per-request seam.
 
-To add a knob: add the nullable property to the options record, convert the
-read site to `_opts.X ?? <existing env read>`, add one `KnobRegistry` entry,
-and regenerate `docs/knobs.md` (run the sync test; it prints the path when
-stale). Nothing else needs touching — `--set`, presets, and the docs table
-pick the knob up from the registry.
+Model-layer knobs are resolved once, at model construction: `KnobResolver`
+fills every unset options property from its env var using the registry's
+exact dialect, and the read sites consume the resolved value (`_opts.X.Value`
+for bools, `_opts.X ?? <non-env default>` for ints whose default is computed
+at the site). Deep code never reads knob env vars directly, and env changes
+after a model is created do not affect that model.
+
+To add a knob: add the nullable property to the options record, add one
+`KnobRegistry` entry whose `BoolDialect`/`IntMin` matches the intended parse
+exactly (the resolver IS the parse), write the read site against the resolved
+property, and regenerate `docs/knobs.md` (run the sync test; it prints the
+path when stale). Nothing else needs touching — `--set`, presets, and the
+docs table pick the knob up from the registry.
 
 ## Testing
 

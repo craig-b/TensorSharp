@@ -20,8 +20,6 @@ namespace TensorSharp.Models
     // and the ts_moe_* / ts_silu_mul / ts_moe_shared_gated_add kernels.
     public partial class Qwen35Model
     {
-        private static readonly bool s_qwenCudaMoeOnDeviceEnabled =
-            Environment.GetEnvironmentVariable("TS_CUDA_MOE_ONDEVICE") != "0";
 
         // On-device batched MoE for PREFILL is opt-in (TS_CUDA_MOE_PREFILL_ONDEVICE=1).
         // It is numerically byte-identical to the host path and removes all per-expert
@@ -31,8 +29,6 @@ namespace TensorSharp.Models
         // path (measured ~0.58x on Qwen3.6-35B-A3B-IQ2_XXS, 512-token prefill). Kept
         // off by default until a weight-reuse batched-GEMM prefill kernel lands; the
         // decode path (the reported gap) uses the always-on single-token kernels.
-        private static readonly bool s_qwenCudaMoePrefillOnDevice =
-            Environment.GetEnvironmentVariable("TS_CUDA_MOE_PREFILL_ONDEVICE") == "1";
 
         private IntPtr[] _qwenMoEGatePtrTable;   // per layer: device u64[numExperts]
         private IntPtr[] _qwenMoEUpPtrTable;     // per layer: device u64[numExperts]
@@ -53,7 +49,7 @@ namespace TensorSharp.Models
             _qwenCudaMoETablesReady = true;
             _qwenCudaMoEUsable = false;
 
-            if (_backend != BackendType.Cuda || !(Options.CudaMoeOnDevice ?? s_qwenCudaMoeOnDeviceEnabled)
+            if (_backend != BackendType.Cuda || !Options.CudaMoeOnDevice.Value
                 || _numExperts <= 0 || _allocator is not CudaAllocator cudaAllocator)
                 return;
             // Under TP the expert weights were moved into _tpQuantWeights and the

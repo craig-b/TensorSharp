@@ -851,8 +851,7 @@ namespace TensorSharp.Models
         // Override with TS_PREFILL_CHUNK when tuning.
         private int ResolvePrefillChunkSize()
         {
-            string env = Environment.GetEnvironmentVariable("TS_PREFILL_CHUNK");
-            if (!string.IsNullOrEmpty(env) && int.TryParse(env, out int v) && v > 0)
+            if (Options.PrefillChunk is int v && v > 0)
                 return v;
             return PrefillChunkCap();
         }

@@ -18,20 +18,18 @@ namespace InferenceWeb.Tests;
 
 public class Qwen35TokenDecodeContractTests
 {
+    // The TS_QWEN35_METAL_GDN_INPLACE_STATE parse itself is covered by the
+    // KnobResolver dialect tests; this gate takes the resolved bool.
     [Theory]
-    [InlineData(BackendType.GgmlMetal, false, "1", true)]
-    [InlineData(BackendType.GgmlMetal, false, "0", false)]
-    [InlineData(BackendType.GgmlMetal, false, null, true)]
-    [InlineData(BackendType.GgmlMetal, false, "", true)]
-    [InlineData(BackendType.GgmlMetal, true, "1", false)]
-    [InlineData(BackendType.GgmlMetal, true, null, false)]
-    [InlineData(BackendType.GgmlCuda, false, "1", false)]
-    [InlineData(BackendType.GgmlCuda, false, null, false)]
-    [InlineData(BackendType.GgmlVulkan, false, "1", false)]
+    [InlineData(BackendType.GgmlMetal, false, true, true)]
+    [InlineData(BackendType.GgmlMetal, false, false, false)]
+    [InlineData(BackendType.GgmlMetal, true, true, false)]
+    [InlineData(BackendType.GgmlCuda, false, true, false)]
+    [InlineData(BackendType.GgmlVulkan, false, true, false)]
     public void MetalGdnInplaceStateGate_DefaultsOnOnlyForSingleDeviceMetal(
         BackendType backend,
         bool isTensorParallel,
-        string? environmentValue,
+        bool inplaceStateEnabled,
         bool expected)
     {
         Assert.Equal(
@@ -39,7 +37,7 @@ public class Qwen35TokenDecodeContractTests
             Qwen35Model.ShouldUseMetalGdnInplaceState(
                 backend,
                 isTensorParallel,
-                environmentValue));
+                inplaceStateEnabled));
     }
 
     [Theory]

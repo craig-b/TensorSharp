@@ -133,13 +133,7 @@ namespace TensorSharp.Models
         // but flash_attn_ext on Metal has a fixed setup cost that only amortises when the cached
         // sequence is long enough. Below this threshold we keep the existing decode path.
         // Set FUSED_ATTN_LAYER_MIN_SEQ_LEN=N to override at runtime for benchmarking.
-        private static readonly int FusedAttnLayerDecodeMinSeqLen = ResolveFusedAttnLayerMinSeqLen();
-        private static readonly int MlxFlashAttnDecodeMinSeqLen = ResolveMlxFlashAttnDecodeMinSeqLen();
         private static readonly int MlxEvalEveryNLayers = ResolveMlxEvalEveryNLayers();
-        private static readonly bool MlxEvalDecodeLayerBoundaries =
-            string.Equals(Environment.GetEnvironmentVariable("TS_MLX_EVAL_DECODE_LAYER_BOUNDARIES"), "1", StringComparison.Ordinal);
-        private static readonly bool MlxEvalFinalLogits =
-            string.Equals(Environment.GetEnvironmentVariable("TS_MLX_EVAL_FINAL_LOGITS"), "1", StringComparison.Ordinal);
         // Pipelined greedy decode state. _pipelineNextInputDevice holds the
         // input embedding for the NEXT decode step, computed on-device from
         // the previous step's argmax. When set, SubmitNextGreedyDecodeStep
@@ -174,8 +168,6 @@ namespace TensorSharp.Models
         // MLX array per (layer, kind), roughly doubling MLX-tracked
         // weight memory (per-expert arrays are still retained for the
         // prefill path); only set =0 on memory-constrained machines.
-        private static readonly bool MlxBatchedMoeDecode =
-            !string.Equals(Environment.GetEnvironmentVariable("TS_MLX_BATCHED_MOE_DECODE"), "0", StringComparison.Ordinal);
 
         // Fused (gate matmul + up matmul + SiLUMul) Metal kernel for the
         // batched MoE decode path. On by default; set
@@ -183,8 +175,6 @@ namespace TensorSharp.Models
         // 3-dispatch sequence for A/B comparison. Saves ~2 MLX dispatches
         // per MoE layer per decode token plus the [K, intermediate]
         // gate/up materialization round-trip.
-        private static readonly bool MlxMoeFusedGateUpSiluDisabled =
-            string.Equals(Environment.GetEnvironmentVariable("TS_MLX_MOE_FUSED_GATE_UP_SILU"), "0", StringComparison.Ordinal);
 
         // Device-router for MoE decode: compute top-K + softmax on the
         // device, skipping the per-MoE-layer host sync on routerLogits.
@@ -194,32 +184,8 @@ namespace TensorSharp.Models
         // automatically when prerequisites are missing (non-greedy
         // router, no batched MoE decode, or a shared-expert gate
         // requiring a host-side VecDot).
-        private static readonly bool MlxDeviceRouter =
-            !string.Equals(Environment.GetEnvironmentVariable("TS_MLX_DEVICE_ROUTER"), "0", StringComparison.Ordinal);
 
-        private static int ResolveFusedAttnLayerMinSeqLen()
-        {
-            string env = Environment.GetEnvironmentVariable("FUSED_ATTN_LAYER_MIN_SEQ_LEN");
-            if (!string.IsNullOrWhiteSpace(env) && int.TryParse(env, out int v) && v > 0)
-                return v;
-            // The fused per-layer attention decode kernel folds 6 small
-            // CPU-side ops into a single Metal graph dispatch. omlx/vllm
-            // both use the equivalent (mx.fast.scaled_dot_product_attention)
-            // unconditionally ÔÇö the per-call setup cost is amortised even
-            // at small KV lengths once the rest of the model is on-device.
-            return 1;
-        }
 
-        private static int ResolveMlxFlashAttnDecodeMinSeqLen()
-        {
-            string env = Environment.GetEnvironmentVariable("TS_MLX_FLASH_ATTN_DECODE_MIN_SEQ_LEN");
-            if (!string.IsNullOrWhiteSpace(env) && int.TryParse(env, out int v) && v > 0)
-                return v;
-            // Always prefer the Metal flash-attention kernel for MLX
-            // decode ÔÇö see omlx/mlx-lm which dispatches
-            // mx.fast.scaled_dot_product_attention for every step.
-            return 1;
-        }
 
         private static int ResolveMlxEvalEveryNLayers()
         {
@@ -336,8 +302,6 @@ namespace TensorSharp.Models
         // Set QWEN35_DISABLE_FUSED_FFN=1 to disable the fully fused dense FFN graph
         // dispatch in FFNCachedFused (useful for A/B benchmarking against the legacy
         // 3-dispatch path: FusedRmsNormMatMul + SiLUMul + FusedMatMulQuantAdd).
-        private static readonly bool _useFusedFfnPrefill =
-            !string.Equals(Environment.GetEnvironmentVariable("QWEN35_DISABLE_FUSED_FFN"), "1", StringComparison.Ordinal);
 
         // Latched so a VRAM-starved prefill reports the degrade once instead of
         // once per layer per chunk.
@@ -354,26 +318,21 @@ namespace TensorSharp.Models
         private long _mlxEvalBoundaryTicks;
         private long _mlxCacheEvalTicks;
 
-        /// <summary>Qwen35-specific overrides; never null. Base-level knobs are
-        /// honoured from whatever <see cref="ModelBase.Options"/> instance was
-        /// passed; this holds the Qwen35-specific ones (all-null Default when
-        /// the caller passed a plain <see cref="ModelOptions"/> or nothing).</summary>
+        /// <summary>Qwen35-specific knobs; never null, fully resolved by
+        /// <see cref="KnobResolver"/> at construction (when the caller passed
+        /// a plain <see cref="ModelOptions"/> or nothing, this is a fresh
+        /// env-resolved record; base-level knobs still come from
+        /// <see cref="ModelBase.Options"/>).</summary>
         private readonly Qwen35Options _opts;
 
         public Qwen35Model(string ggufPath, BackendType backend, int tpDegree = 1, ITensorParallelGroup tpGroup = null,
             ModelOptions options = null)
             : base(ggufPath, backend, tpDegree, tpGroup, options)
         {
-            _opts = options as Qwen35Options ?? Qwen35Options.Default;
+            _opts = Options as Qwen35Options
+                ?? (Qwen35Options)KnobResolver.Resolve(Qwen35Options.Default);
             _useMetalGdnInplaceState = ShouldUseMetalGdnInplaceState(
-                backend,
-                IsTensorParallel,
-                _opts.MetalGdnInplaceState switch
-                {
-                    true => "1",
-                    false => "0",
-                    null => Environment.GetEnvironmentVariable("TS_QWEN35_METAL_GDN_INPLACE_STATE"),
-                });
+                backend, IsTensorParallel, _opts.MetalGdnInplaceState.Value);
 
             string arch = _gguf.GetString("general.architecture") ?? "qwen35";
             Config = new ModelConfig { Architecture = arch };
@@ -1543,11 +1502,8 @@ namespace TensorSharp.Models
         // width, which bounds the MoE activation peak. Override with TS_PREFILL_CHUNK.
         private int ResolvePrefillChunkSize()
         {
-            if (Options.PrefillChunk.HasValue && Options.PrefillChunk.Value > 0)
-                return Options.PrefillChunk.Value;
-            string env = Environment.GetEnvironmentVariable("TS_PREFILL_CHUNK");
-            if (!string.IsNullOrEmpty(env) && int.TryParse(env, out int v) && v > 0)
-                return v;
+            if (Options.PrefillChunk is int chunk && chunk > 0)
+                return chunk;
             // Vulkan VRAM cliff: a fused-verify graph wider than ~768 tokens pushes the
             // MoE activation peak past a 16 GB card's VRAM, and WDDM then PERMANENTLY
             // demotes the reuse-gallocr to shared system memory -> pp2048 collapses from
@@ -1564,8 +1520,6 @@ namespace TensorSharp.Models
         // Gates the whole-model fused prefill path (TSGgml_Qwen35ModelVerify, one
         // GGML graph for all layers). Default on; TS_QWEN35_PREFILL_VERIFY=0 forces
         // the per-op layer loop for A/B comparison.
-        private static readonly bool _prefillVerifyEnabled =
-            !string.Equals(Environment.GetEnvironmentVariable("TS_QWEN35_PREFILL_VERIFY"), "0", StringComparison.Ordinal);
 
         /// <summary>
         /// Whether a dense (text-only) prefill chunk can run through the fused
@@ -1577,7 +1531,7 @@ namespace TensorSharp.Models
         /// </summary>
         private bool CanUsePrefillVerify(int startPos, int seqLen)
         {
-            if (!(_opts.PrefillVerify ?? _prefillVerifyEnabled)) return false;
+            if (!_opts.PrefillVerify.Value) return false;
             if (_fvUnsupported) return false;
             // All GGML GPU backends run the whole-model prefill graph. CUDA and
             // Vulkan use dynamic set_rows writes; Metal uses contiguous cpy views
@@ -1685,15 +1639,7 @@ namespace TensorSharp.Models
         // off completed in under a minute at 200-320 tok/s and no VRAM
         // spillover. TS_CUDA_PREFILL_GRAPH_MAX_SEQLEN overrides; 0 = unlimited
         // (restores the old always-try-to-capture behavior).
-        private static readonly int CudaPrefillGraphMaxSeqLen = ReadCudaPrefillGraphMaxSeqLen();
 
-        private static int ReadCudaPrefillGraphMaxSeqLen()
-        {
-            string s = Environment.GetEnvironmentVariable("TS_CUDA_PREFILL_GRAPH_MAX_SEQLEN");
-            if (!string.IsNullOrEmpty(s) && int.TryParse(s, out int v) && v >= 0)
-                return v;
-            return 512;
-        }
 
         private Tensor RunCudaPrefillLayerLoop(Tensor hidden, int seqLen, int startPos)
         {
@@ -1702,7 +1648,7 @@ namespace TensorSharp.Models
                 && _kvCacheK != null && _isRecurrent != null;
             if (graphable && seqLen == 1 && CudaPrefillGraphCache.DecodeEnabled)
                 return RunCudaDecodeLayerLoop(hidden, startPos);
-            int cudaPrefillGraphMaxSeqLen = _opts.CudaPrefillGraphMaxSeqLen ?? CudaPrefillGraphMaxSeqLen;
+            int cudaPrefillGraphMaxSeqLen = _opts.CudaPrefillGraphMaxSeqLen ?? 512;
             if (cudaPrefillGraphMaxSeqLen > 0 && seqLen > cudaPrefillGraphMaxSeqLen)
                 graphable = false;
             if (!graphable || seqLen <= 1 || !CudaPrefillGraphCache.Enabled)
@@ -2207,7 +2153,7 @@ namespace TensorSharp.Models
                 lastNormed.Dispose();
             }
             lastHiddenRaw.Dispose();
-            if (_backend == BackendType.Mlx && (_opts.MlxEvalFinalLogits ?? MlxEvalFinalLogits))
+            if (_backend == BackendType.Mlx && _opts.MlxEvalFinalLogits.Value)
                 MlxFusedOps.TryEvaluate(logitsTensor);
             long lmHeadEnd = Stopwatch.GetTimestamp();
             _lmHeadTicks += lmHeadEnd - t2;
@@ -2420,7 +2366,7 @@ namespace TensorSharp.Models
                 return;
             }
 
-            if (seqLen == 1 && !(_opts.MlxEvalDecodeLayerBoundaries ?? MlxEvalDecodeLayerBoundaries))
+            if (seqLen == 1 && !_opts.MlxEvalDecodeLayerBoundaries.Value)
             {
                 if ((layer + 1) % mlxEvalEveryNLayers == 0 || layer + 1 == Config.NumLayers)
                 {
@@ -2490,7 +2436,7 @@ namespace TensorSharp.Models
             // already faster, so we keep the existing path.
             int totalSeqLen = startPos + seqLen;
             bool fusedDecodeApplied = false;
-            if (seqLen == 1 && totalSeqLen >= (_opts.FusedAttnLayerMinSeqLen ?? FusedAttnLayerDecodeMinSeqLen)
+            if (seqLen == 1 && totalSeqLen >= (_opts.FusedAttnLayerMinSeqLen ?? 1)
                 && TryFusedAttnLayerDecode(hidden, layer, startPos))
             {
                 fusedDecodeApplied = true;
@@ -2692,7 +2638,7 @@ namespace TensorSharp.Models
             bool useMRoPE = _pendingMRoPEPositions != null && _pendingMRoPEPositions.Length >= 3 * seqLen;
             bool fusedNormRopeApplied = false;
             // TS_FUSED_QKNORM_ROPE=0 disables the fused path. Default: ON (lookup-table optimized).
-            bool fusedEnabled = _opts.FusedQkNormRope ?? !string.Equals(Environment.GetEnvironmentVariable("TS_FUSED_QKNORM_ROPE"), "0", StringComparison.Ordinal);
+            bool fusedEnabled = _opts.FusedQkNormRope.Value;
             if (fusedEnabled && _backend == BackendType.Cuda && !useMRoPE)
             {
                 int ropeDim = _ropeDimCount > 0 ? _ropeDimCount : headDim;
@@ -2795,7 +2741,7 @@ namespace TensorSharp.Models
                         _kvCacheK[layer], _kvCacheV[layer], attnOutput,
                         numHeads, numKVHeads, headDim, maxSeqLen, startPos, attentionScale);
                 }
-                else if (_backend == BackendType.Mlx && totalSeqLen >= (_opts.MlxFlashAttnDecodeMinSeqLen ?? MlxFlashAttnDecodeMinSeqLen))
+                else if (_backend == BackendType.Mlx && totalSeqLen >= (_opts.MlxFlashAttnDecodeMinSeqLen ?? 1))
                 {
                     CopyToCacheDecode(_kvCacheK[layer], kTensor, _kvCacheV[layer], vTensor,
                         numKVHeads, headDim, startPos);
@@ -2900,7 +2846,7 @@ namespace TensorSharp.Models
                 bool tryMlxPrefillAttention = _backend == BackendType.Mlx
                     && !usedFusedAttn
                     && (headDim <= 128
-                        || (_opts.MlxChunkedVectorPrefill ?? string.Equals(Environment.GetEnvironmentVariable("TS_MLX_CHUNKED_VECTOR_PREFILL"), "1", StringComparison.Ordinal)));
+                        || _opts.MlxChunkedVectorPrefill.Value);
                 if (tryMlxPrefillAttention)
                 {
                     Tensor qHeadsForAttn = null;
@@ -3220,7 +3166,7 @@ namespace TensorSharp.Models
                 && qFull.Storage is MlxStorage
                 && (seqLen == 1
                     || headDim == 256
-                    || (_opts.MlxGpuDeinterleave ?? string.Equals(Environment.GetEnvironmentVariable("TS_MLX_QWEN_GPU_DEINTERLEAVE"), "1", StringComparison.Ordinal)));
+                    || _opts.MlxGpuDeinterleave.Value);
             if (mlxGpuDeinterleave)
             {
                 using Tensor qGate = qFull.View(seqLen, numHeads, 2, headDim);
@@ -3382,7 +3328,7 @@ namespace TensorSharp.Models
             // comparison or debugging.
             if (seqLen > 1
                 && IsGgmlBackend
-                && (_opts.FusedFfnPrefill ?? _useFusedFfnPrefill)
+                && _opts.FusedFfnPrefill.Value
                 && postNormW != null
                 && _ffnGateUpQW[layer] != null
                 && _ffnDownQW[layer] != null
@@ -4136,8 +4082,6 @@ namespace TensorSharp.Models
         // TS_QWEN35_MROPE_NATIVE=0 forces the managed MRoPE rotation loop on the
         // GGML backends instead of the native ggml_rope_multi kernel. A/B switch
         // for isolating rope-kernel issues from the rest of the multimodal path.
-        private static readonly bool _mropeNativeEnabled =
-            Environment.GetEnvironmentVariable("TS_QWEN35_MROPE_NATIVE") != "0";
 
         /// <summary>Per-axis (interleaved MRoPE) variant of ApplyRoPEPrefill.
         /// Q/K go in, get rotated in place by NeoX-style pair rotation where
@@ -4167,7 +4111,7 @@ namespace TensorSharp.Models
             // Mode 40 = GGML_ROPE_TYPE_IMROPE; sections come straight from the
             // GGUF (Qwen3.5 ships [11,11,10,0]).
             if (data.Storage is TensorSharp.GGML.GgmlStorage && _mropeSections != null && _mropeSections.Length >= 4
-                && (_opts.MropeNative ?? _mropeNativeEnabled))
+                && _opts.MropeNative.Value)
             {
                 int[] flatThw = new int[4 * seqLen];
                 for (int t = 0; t < seqLen; t++)
@@ -4696,7 +4640,7 @@ namespace TensorSharp.Models
             // routing (== the on-device ts_moe_router_f32); other routings fall through
             // to the host path below. routerLogits stays alive on a fall-through.
             if (_backend == BackendType.Cuda && routeRowsAreLogits && CanUseQwenCudaMoEOnDevice(layer)
-                && (seqLen == 1 || (Options.CudaMoePrefillOnDevice ?? s_qwenCudaMoePrefillOnDevice)))
+                && (seqLen == 1 || Options.CudaMoePrefillOnDevice.Value))
             {
                 Tensor onDevice = seqLen == 1
                     ? TryCudaMoEForwardOnDevice(input, routerLogits, layer)
@@ -4716,11 +4660,11 @@ namespace TensorSharp.Models
             bool hasSharedGate = _hasSharedExperts != null && _hasSharedExperts[layer]
                 && _hasSharedExpertGate != null && _hasSharedExpertGate[layer]
                 && _ffnGateInpShexpVec?[layer] != null;
-            if ((_opts.MlxDeviceRouter ?? MlxDeviceRouter)
+            if (_opts.MlxDeviceRouter.Value
                 && _backend == BackendType.Mlx
                 && seqLen == 1
                 && routeRowsAreLogits
-                && (_opts.MlxBatchedMoeDecode ?? MlxBatchedMoeDecode)
+                && _opts.MlxBatchedMoeDecode.Value
                 && !hasSharedGate
                 && _layerStackedGate != null && _layerStackedGate[layer] != null
                 && _moeGateBuf != null)
@@ -4779,7 +4723,7 @@ namespace TensorSharp.Models
                 && _layerStackedGate != null && _layerStackedGate[layer] != null
                 && _layerStackedUp != null && _layerStackedUp[layer] != null
                 && _layerStackedDown != null && _layerStackedDown[layer] != null
-                && !(_opts.StackedMoe.HasValue ? !_opts.StackedMoe.Value : IsQwen35GgmlStackedMoeDisabled()))
+                && _opts.StackedMoe.Value)
             {
                 Tensor stackedOut = TryMoEForwardGgmlStacked(input, routePtr, routeRowsAreLogits, layer, seqLen);
                 if (stackedOut != null)
@@ -5048,9 +4992,6 @@ namespace TensorSharp.Models
             return output;
         }
 
-        private static bool IsQwen35GgmlStackedMoeDisabled()
-            => string.Equals(Environment.GetEnvironmentVariable("TS_QWEN35_STACKED_MOE"),
-                             "0", StringComparison.Ordinal);
 
         // GGML stacked-MoE forward over N tokens (decode batch or prefill chunk).
         // Routes top-K on host, runs the routed experts via ONE
@@ -5188,7 +5129,7 @@ namespace TensorSharp.Models
         private void RunMoEExpertsReusedMlxOnDevice(Tensor output, Tensor tokenInput, int layer,
             int[] topExperts, float[] routeW)
         {
-            if ((_opts.MlxBatchedMoeDecode ?? MlxBatchedMoeDecode) && TryRunMoEExpertsBatchedMlx(output, tokenInput, layer, topExperts, routeW))
+            if (_opts.MlxBatchedMoeDecode.Value && TryRunMoEExpertsBatchedMlx(output, tokenInput, layer, topExperts, routeW))
                 return;
 
             for (int k = 0; k < _numExpertsUsed; k++)
@@ -5404,7 +5345,7 @@ namespace TensorSharp.Models
                 // doesn't support it yet) or fails. Gated by
                 // TS_MLX_MOE_FUSED_GATE_UP_SILU=0 to disable for A/B.
                 bool fusedOk = false;
-                if (!(_opts.MlxMoeFusedGateUpSilu.HasValue ? !_opts.MlxMoeFusedGateUpSilu.Value : MlxMoeFusedGateUpSiluDisabled))
+                if (_opts.MlxMoeFusedGateUpSilu.Value)
                 {
                     fusedOk = MlxQuantizedOps.TryMoeFusedGateUpSilu(
                         _moeBatchedGate, tokenInput, _moeBatchedExpertIndices,

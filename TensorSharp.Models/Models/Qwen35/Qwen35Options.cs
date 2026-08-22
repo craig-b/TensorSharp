@@ -3,9 +3,10 @@ using System;
 namespace TensorSharp.Models
 {
     /// <summary>Qwen 3.5 tuning knobs, extending <see cref="ModelOptions"/> with
-    /// the model-specific gates. Same contract: null = existing env-var
-    /// behaviour, unchanged; set = per-instance override. Properties whose env
-    /// var is an inverted "disable" flag are expressed positive-sense here.</summary>
+    /// the model-specific gates. Same contract: null = resolved from the env
+    /// var by <see cref="KnobResolver"/> at model construction; set =
+    /// per-instance override. Properties whose env var is an inverted
+    /// "disable" flag are expressed positive-sense here.</summary>
     public sealed record Qwen35Options : ModelOptions
     {
         /// <summary>All-null options: pure env-var behaviour. Safe to share.</summary>

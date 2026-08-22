@@ -414,7 +414,7 @@ namespace TensorSharp.Models
         private bool TryFusedVerifyTrunk(Tensor hidden, int startPos, int seqLen,
             float[] hAllOut, float[] logitsOut, bool allLogitsRows)
         {
-            if (!(_opts.FusedVerify ?? _fusedVerifyEnabled))
+            if (!_opts.FusedVerify.Value)
                 return false;
             int vocab = Config.VocabSize;
             if (allLogitsRows)
@@ -610,7 +610,7 @@ namespace TensorSharp.Models
         /// verify (<see cref="TryFullModelVerify"/>) is enabled we route spec to the
         /// LINEAR trunk instead (SpecForward), whose KV/GDN state the fused verify
         /// reads/writes; the batched paged trunk uses a different (paged) store.</summary>
-        public bool SupportsBatchedSpecTrunk => HasMtp && IsGgmlBackend && (_opts.Batched ?? IsBatchedPathEnabled()) && !(_opts.FusedVerify ?? _fusedVerifyEnabled);
+        public bool SupportsBatchedSpecTrunk => HasMtp && IsGgmlBackend && _opts.Batched.Value && !_opts.FusedVerify.Value;
 
         public void SpecForwardBatched(SequenceState seq, int[] tokens, int startPos,
             float[] hAllOut, float[] logitsOut, bool allLogitsRows)

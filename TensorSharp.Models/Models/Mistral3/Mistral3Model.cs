@@ -414,10 +414,9 @@ namespace TensorSharp.Models
         // (~numHeads × chunkLen × totalKvLen × kvDtype). Past ~2048 the score tensor
         // can run into hundreds of MB on long contexts and thrash the MLX memory pool.
         // Override with TS_PREFILL_CHUNK when tuning.
-        private static int ResolvePrefillChunkSize()
+        private int ResolvePrefillChunkSize()
         {
-            string env = Environment.GetEnvironmentVariable("TS_PREFILL_CHUNK");
-            if (!string.IsNullOrEmpty(env) && int.TryParse(env, out int v) && v > 0)
+            if (Options.PrefillChunk is int v && v > 0)
                 return v;
             return 2048;
         }

@@ -10,8 +10,6 @@ namespace TensorSharp.Models
         // Direct-CUDA grouped MoE prefill. Host routing is already available in
         // Gemma's reference path; only the large activation gather/scatter moves
         // to the device. Set to 0 for an exact legacy-path A/B comparison.
-        private static readonly bool s_gemmaCudaMoeGroupedPrefill =
-            Environment.GetEnvironmentVariable("TS_CUDA_MOE_PREFILL_GROUPED") != "0";
 
         private bool TryMoEGroupedCudaPrefill(
             Tensor moeInput,
@@ -23,7 +21,7 @@ namespace TensorSharp.Models
             int seqLen,
             int hiddenDim)
         {
-            if (!s_gemmaCudaMoeGroupedPrefill
+            if (!Options.CudaMoePrefillGrouped.Value
                 || _backend != BackendType.Cuda
                 || seqLen <= 1
                 || moeInput?.Storage is not CudaStorage

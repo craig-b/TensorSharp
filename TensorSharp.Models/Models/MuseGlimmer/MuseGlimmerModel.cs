@@ -786,10 +786,9 @@ namespace TensorSharp.Models
             return _logitsBuffer;
         }
 
-        private static int ResolvePrefillChunkSize()
+        private int ResolvePrefillChunkSize()
         {
-            string env = Environment.GetEnvironmentVariable("TS_PREFILL_CHUNK");
-            if (!string.IsNullOrEmpty(env) && int.TryParse(env, out int v) && v > 0)
+            if (Options.PrefillChunk is int v && v > 0)
                 return v;
             return 2048;
         }

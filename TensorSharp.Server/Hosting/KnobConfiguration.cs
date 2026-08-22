@@ -116,7 +116,8 @@ namespace TensorSharp.Server.Hosting
                 return $"an integer >= {knob.IntMin}";
             return knob.Dialect switch
             {
-                BoolDialect.InvertedDisable => "1 (disable) or 0 (keep enabled) — inverted opt-out variable",
+                BoolDialect.InvertedDisableOne => "1 (disable) or 0 (keep enabled) — inverted opt-out variable",
+                BoolDialect.InvertedDisableOneOrTrue => "1 (disable) or 0 (keep enabled) — inverted opt-out variable",
                 _ => "1 or 0",
             };
         }

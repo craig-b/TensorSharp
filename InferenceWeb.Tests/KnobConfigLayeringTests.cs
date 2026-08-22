@@ -16,10 +16,10 @@ public class KnobConfigLayeringTests : IDisposable
 {
     private static readonly string[] TouchedVars =
     {
-        "TS_QWEN35_BATCHED",            // LooseDefaultOn (with flags)
-        "TS_GGML_F32_RESIDENT",         // LooseDefaultOn
+        "TS_QWEN35_BATCHED",            // LooseZeroOrFalse (with flags)
+        "TS_GGML_F32_RESIDENT",         // LooseZeroOnly
         "TS_QWEN35_VERIFY_RESIDENT",    // StrictOptIn
-        "TS_DISABLE_FUSED_DENSE_FFN",   // InvertedDisable
+        "TS_DISABLE_FUSED_DENSE_FFN",   // InvertedDisableOneOrTrue
         "TS_MLX_MLOCK_GGUF",            // OnRequiresExactlyOneWhenSet
         "TS_PREFILL_CHUNK",             // Int, min 1
         "TS_MLX_EVAL_EVERY_N_LAYERS",   // Int, min 0
