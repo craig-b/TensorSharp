@@ -315,40 +315,17 @@ namespace TensorSharp.Server.Hosting
         }
 
         /// <summary>
-        /// Typed model-layer overrides captured from the CLI, handed to
-        /// <c>ModelBase.Create</c> on every model load instead of travelling
-        /// through process env vars. All-null (the no-flags result) is
-        /// byte-identical to passing no options: each knob falls back to its
-        /// existing env-var read (see <see cref="ModelOptions"/>). Later flags
-        /// win over earlier ones, matching the env-writing flag loops.
+        /// Typed model-layer overrides handed to <c>ModelBase.Create</c> on
+        /// every model load instead of travelling through process env vars.
+        /// Layered via the configuration tree: <see cref="KnobRegistry"/> env
+        /// vars below, CLI flags above (CLI wins). Knobs neither flagged nor
+        /// unambiguously readable from env stay null, which is byte-identical
+        /// to the existing behaviour: the knob's own env read decides at the
+        /// site (see <see cref="ModelOptions"/>).
         /// </summary>
         public static ModelOptions BuildModelOptions(string[] args)
         {
-            bool? batched = null;
-            if (args != null)
-            {
-                for (int i = 0; i < args.Length; i++)
-                {
-                    string a = args[i];
-                    if (string.Equals(a, "--continuous-batching", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(a, "--paged-batching", StringComparison.OrdinalIgnoreCase))
-                    {
-                        batched = true;
-                    }
-                    else if (string.Equals(a, "--no-continuous-batching", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(a, "--no-paged-batching", StringComparison.OrdinalIgnoreCase))
-                    {
-                        batched = false;
-                    }
-                }
-            }
-
-            // Qwen35Options so the Qwen-specific gates are reachable; other
-            // architectures see it as its ModelOptions base.
-            return new Qwen35Options
-            {
-                Batched = batched,
-            };
+            return ModelKnobConfig.Bind(ModelKnobConfig.BuildConfiguration(args));
         }
 
         /// <summary>
