@@ -133,7 +133,7 @@ namespace TensorSharp.Runtime
                     // renders null as an empty string, which reaches the model as
                     // a meaningless empty choice in the enum.
                     foreach (JsonElement v in enumValues.EnumerateArray())
-                        param.Enum.Add(v.ValueKind == JsonValueKind.String ? v.GetString() : v.GetRawText());
+                        param.Enum.Add(v.ValueKind == JsonValueKind.String ? v.GetString()! : v.GetRawText());
                 }
                 fn.Parameters[prop.Name] = param;
             }
@@ -144,7 +144,7 @@ namespace TensorSharp.Runtime
             return fn;
         }
 
-        private static string GetString(JsonElement obj, string name)
+        private static string? GetString(JsonElement obj, string name)
             => obj.TryGetProperty(name, out JsonElement v) && v.ValueKind == JsonValueKind.String
                 ? v.GetString()
                 : null;
@@ -158,7 +158,7 @@ namespace TensorSharp.Runtime
         /// and drop the <c>"null"</c> member, whose meaning <c>required</c>
         /// already carries.
         /// </summary>
-        private static string ReadSchemaType(JsonElement schema)
+        private static string? ReadSchemaType(JsonElement schema)
         {
             if (!schema.TryGetProperty("type", out JsonElement type))
                 return null;
@@ -167,12 +167,12 @@ namespace TensorSharp.Runtime
             if (type.ValueKind != JsonValueKind.Array)
                 return null;
 
-            string first = null;
+            string? first = null;
             foreach (JsonElement v in type.EnumerateArray())
             {
                 if (v.ValueKind != JsonValueKind.String)
                     continue;
-                string name = v.GetString();
+                string? name = v.GetString();
                 first ??= name;
                 if (name != "null")
                     return name;
@@ -186,7 +186,7 @@ namespace TensorSharp.Runtime
                 return;
             foreach (JsonElement v in req.EnumerateArray())
                 if (v.ValueKind == JsonValueKind.String)
-                    into.Add(v.GetString());
+                    into.Add(v.GetString()!);
         }
     }
 
@@ -2016,7 +2016,7 @@ namespace TensorSharp.Runtime
                     return e.GetDouble();
                 case JsonValueKind.True: return true;
                 case JsonValueKind.False: return false;
-                case JsonValueKind.Null: return null;
+                case JsonValueKind.Null: return null!;
                 case JsonValueKind.Array:
                 {
                     var list = new List<object>();

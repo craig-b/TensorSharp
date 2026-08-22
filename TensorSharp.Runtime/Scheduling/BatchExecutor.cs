@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -34,7 +35,7 @@ namespace TensorSharp.Runtime.Scheduling
         private readonly ILogger _logger;
 
         // Currently-owning sequence (whose K/V state is in the model's tensors).
-        private SequenceState _currentOwner;
+        private SequenceState? _currentOwner;
         // Number of tokens the model currently holds for the current owner.
         // Equals model._cacheSeqLen for purely-attention models.
         private int _ownerTokensInModel;
@@ -53,7 +54,7 @@ namespace TensorSharp.Runtime.Scheduling
         // sequence skip re-prefill entirely by continuing from the live cache ÔÇö
         // critical for sliding-window models where the pooled snapshot can only
         // reuse one window.
-        private SequenceState _liveCacheSeq;
+        private SequenceState? _liveCacheSeq;
         private int _liveCacheLen;
         private bool _liveCacheValid;
 
@@ -69,8 +70,8 @@ namespace TensorSharp.Runtime.Scheduling
         // single-stream live-cache continuation. See ComputeFusedContinuationLcp.
         private sealed class RetainedFusedCache
         {
-            public string RequestId;   // model holder key (retained, not active)
-            public int[] Tokens;       // full prompt+output tokens the holder's K/V covers
+            public required string RequestId;  // model holder key (retained, not active)
+            public required int[] Tokens;      // full prompt+output tokens the holder's K/V covers
         }
         // Most-recently-retained at the tail; evict from the head.
         private readonly LinkedList<RetainedFusedCache> _retainedFused = new();
@@ -80,7 +81,7 @@ namespace TensorSharp.Runtime.Scheduling
             new(StringComparer.Ordinal);
 
         // Re-used scratch buffer for inject/extract. Sized to one full block.
-        private byte[] _scratch;
+        private byte[]? _scratch;
 
         // ---- NextN/MTP speculative decoding (see MtpSpeculativeExecution) ----
         // At most one sequence at a time runs speculatively: the draft head's
@@ -89,7 +90,7 @@ namespace TensorSharp.Runtime.Scheduling
         // position). Any KV rebuild/swap ÔÇö ownership change, batched/fused
         // step, preemption ÔÇö invalidates the context; it re-arms only at a
         // fresh full prefill from position 0.
-        private MtpSeqContext _mtpCtx;
+        private MtpSeqContext? _mtpCtx;
 
         // One-time warning when --mtp-spec is requested but the model can't run its
         // accelerated MTP path on the current backend (speculation would be net-
@@ -98,12 +99,12 @@ namespace TensorSharp.Runtime.Scheduling
 
         private sealed class MtpSeqContext
         {
-            public SequenceState Seq;
-            public MtpSpeculativeExecution Exec;
+            public required SequenceState Seq;
+            public required MtpSpeculativeExecution Exec;
             // Non-null when the speculative trunk runs through the batched
             // paged path (IMtpBatchedSpeculativeModel) instead of the linear
             // cache. The trunk's own position must agree with NextPosition.
-            public BatchedMtpTrunk BatchedTrunk;
+            public BatchedMtpTrunk? BatchedTrunk;
             // Trunk position the next forward for Seq must start at; must equal
             // seq.NumComputedTokens (and, on the linear trunk, the model's
             // CacheSeqLen) to stay armed.
@@ -135,7 +136,7 @@ namespace TensorSharp.Runtime.Scheduling
                 Position = position;
             }
 
-            public void Forward(int[] tokens, float[] hAllOut, float[] logitsOut, bool allLogitsRows)
+            public void Forward(int[] tokens, float[]? hAllOut, float[] logitsOut, bool allLogitsRows)
             {
                 _model.SpecForwardBatched(_seq, tokens, Position, hAllOut, logitsOut, allLogitsRows);
                 Position += tokens.Length;
@@ -157,7 +158,7 @@ namespace TensorSharp.Runtime.Scheduling
             IModelArchitecture model,
             BlockPool pool,
             ContinuousBatchScheduler scheduler,
-            ILogger logger = null)
+            ILogger? logger = null)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
             _pool = pool ?? throw new ArgumentNullException(nameof(pool));
@@ -167,7 +168,7 @@ namespace TensorSharp.Runtime.Scheduling
         }
 
         public IModelArchitecture Model => _model;
-        public SequenceState CurrentOwner => _currentOwner;
+        public SequenceState? CurrentOwner => _currentOwner;
 
         /// <summary>Execute one scheduler step. Path selection is centralised
         /// in <see cref="ExecutionPlanner"/>: the executor snapshots the
@@ -294,7 +295,7 @@ namespace TensorSharp.Runtime.Scheduling
         /// <summary>Dispatch one plan candidate. Returns null when a declinable
         /// candidate passes on the step (the caller then tries the next
         /// candidate in the plan's chain).</summary>
-        private List<SequenceStepResult> TryExecutePath(
+        private List<SequenceStepResult>? TryExecutePath(
             ExecutionPathKind path, SchedulerOutput output, ExecutionOptions options)
         {
             switch (path)
@@ -368,7 +369,7 @@ namespace TensorSharp.Runtime.Scheduling
         /// null (declining the step to the plan's next candidate) when the
         /// owner's linear-to-paged migration fails or the model refuses this
         /// specific batch with NotSupportedException.</summary>
-        private List<SequenceStepResult> TryExecuteStepBatchedPaged(
+        private List<SequenceStepResult>? TryExecuteStepBatchedPaged(
             IBatchedPagedModel batched, SchedulerOutput output)
         {
             // Before dispatching through ForwardBatch, make sure any sequence
@@ -419,7 +420,7 @@ namespace TensorSharp.Runtime.Scheduling
         // decision (selected path, fallback chain, or rejection reasons)
         // actually changes, so steady-state decode stays quiet while
         // concurrency/feature transitions leave an audit trail.
-        private string _lastPlanDescription;
+        private string? _lastPlanDescription;
 
         private void LogPlanTransition(ExecutionPlan plan)
         {
@@ -885,9 +886,9 @@ namespace TensorSharp.Runtime.Scheduling
                 int quantum = Math.Max(1, _scheduler.Config.DecodeQuantumTokens);
                 bool quantumExceeded = canSwap && _ownerForwardedTokens >= quantum;
 
-                ScheduledSequenceWork ownerWork = null;
-                ScheduledSequenceWork firstNonOwner = null;
-                ScheduledSequenceWork freshNonOwner = null;
+                ScheduledSequenceWork? ownerWork = null;
+                ScheduledSequenceWork? firstNonOwner = null;
+                ScheduledSequenceWork? freshNonOwner = null;
                 foreach (var candidate in output.ScheduledWork)
                 {
                     if (ReferenceEquals(candidate.Sequence, _currentOwner))
@@ -1047,7 +1048,7 @@ namespace TensorSharp.Runtime.Scheduling
         /// serve the speculative trunk never arm here ÔÇö they are handled by
         /// <see cref="TryExecuteStepMtpBatchedTrunk"/> before the per-seq
         /// route is ever taken.</summary>
-        private SequenceStepResult TryExecuteMtpStep(
+        private SequenceStepResult? TryExecuteMtpStep(
             SequenceState seq, ScheduledSequenceWork work, int prevComputed)
         {
             if (!_scheduler.Config.MtpSpeculativeEnabled)
@@ -1125,7 +1126,7 @@ namespace TensorSharp.Runtime.Scheduling
         /// context, prefix-reused admission), and the plan's next candidate
         /// then serves the step and drops any stale context.
         /// </summary>
-        private List<SequenceStepResult> TryExecuteStepMtpBatchedTrunk(SchedulerOutput output)
+        private List<SequenceStepResult>? TryExecuteStepMtpBatchedTrunk(SchedulerOutput output)
         {
             // Static routing gates (speculation requested, batched-trunk
             // capability, profitability, solo step, no pending multimodal, not
@@ -1196,7 +1197,7 @@ namespace TensorSharp.Runtime.Scheduling
         private SequenceStepResult ExecuteMtpWorkCore(
             SequenceState seq, ScheduledSequenceWork work, int prevComputed)
         {
-            bool batchedTrunk = _mtpCtx.BatchedTrunk != null;
+            bool batchedTrunk = _mtpCtx!.BatchedTrunk != null;
             if (work.IsPrefill)
             {
                 int[] chunk = BuildPrefillChunk(seq, work);
@@ -1419,7 +1420,7 @@ namespace TensorSharp.Runtime.Scheduling
                 int id = tokenAt(k);
                 if (k == center) sb.Append('*');
                 sb.Append(id);
-                string piece = null;
+                string? piece = null;
                 try { piece = _model.Tokenizer?.Decode(new List<int> { id }); }
                 catch (Exception) { /* a lone special/partial token may not decode */ }
                 if (!string.IsNullOrEmpty(piece))
@@ -1536,9 +1537,9 @@ namespace TensorSharp.Runtime.Scheduling
         /// <summary>Find the retained fused holder whose token run is an exact prefix
         /// of <paramref name="seq"/>'s prompt and leaves at least one new suffix token
         /// to forward. Prefers the longest match.</summary>
-        private RetainedFusedCache FindRetainedFusedMatch(SequenceState seq)
+        private RetainedFusedCache? FindRetainedFusedMatch(SequenceState seq)
         {
-            RetainedFusedCache best = null;
+            RetainedFusedCache? best = null;
             foreach (var entry in _retainedFused)
             {
                 int len = entry.Tokens.Length;
@@ -1604,9 +1605,9 @@ namespace TensorSharp.Runtime.Scheduling
 
             // Evict oldest holders beyond the budget (frees their VRAM).
             int budget = ExecutionOptions.FromEnvironment().RetainedFusedCacheBudget;
-            while (_retainedFused.Count > budget)
+            while (_retainedFused.Count > budget && _retainedFused.First is { } head)
             {
-                var victim = _retainedFused.First.Value;
+                var victim = head.Value;
                 _retainedFused.RemoveFirst();
                 fused.DiscardRetainedCache(victim.RequestId);
             }
@@ -1884,6 +1885,7 @@ namespace TensorSharp.Runtime.Scheduling
             return Math.Min(fullBlocks, cap / _blockSize);
         }
 
+        [MemberNotNull(nameof(_scratch))]
         private void EnsureScratch(int bytes)
         {
             if (_scratch == null || _scratch.Length < bytes)
@@ -1915,7 +1917,7 @@ namespace TensorSharp.Runtime.Scheduling
     /// to the engine for streaming + stop detection.</summary>
     public sealed class SequenceStepResult
     {
-        public SequenceState Sequence { get; init; }
+        public required SequenceState Sequence { get; init; }
         public int TokensForwarded { get; init; }
         public int SampledToken { get; init; } = -1;
 
@@ -1924,12 +1926,12 @@ namespace TensorSharp.Runtime.Scheduling
         /// appended to the sequence's OutputTokens by the executor; the engine
         /// streams them with per-token EOS / length checks. Null when the step
         /// produced no extra tokens.</summary>
-        public IReadOnlyList<int> ExtraTokens { get; init; }
+        public IReadOnlyList<int>? ExtraTokens { get; init; }
 
         public bool IsPrefill { get; init; }
         public int FullBlocksCaptured { get; init; }
         public long ForwardElapsedTicks { get; init; }
-        public Exception Error { get; init; }
+        public Exception? Error { get; init; }
 
         public bool IsNoOp => TokensForwarded == 0 && Error == null;
 
@@ -2108,12 +2110,12 @@ namespace TensorSharp.Runtime.Scheduling
     /// Mirrors vLLM's <c>CommonAttentionMetadata</c>.</summary>
     public sealed class BatchedForwardContext
     {
-        public List<SequenceState> Sequences { get; init; }
-        public List<int> NumScheduledTokens { get; init; }
-        public List<int> QueryStartLoc { get; init; }
-        public List<int> Positions { get; init; }
-        public List<int> SlotMapping { get; init; }
-        public int[][] BlockTables { get; init; }
+        public required List<SequenceState> Sequences { get; init; }
+        public required List<int> NumScheduledTokens { get; init; }
+        public required List<int> QueryStartLoc { get; init; }
+        public required List<int> Positions { get; init; }
+        public required List<int> SlotMapping { get; init; }
+        public required int[][] BlockTables { get; init; }
         public int MaxQueryLen { get; set; }
         public int MaxSeqLen { get; set; }
 
@@ -2122,16 +2124,16 @@ namespace TensorSharp.Runtime.Scheduling
         /// <summary>When set, these tokens are forwarded instead of reading
         /// <c>seq.TokenAt(...)</c>. Speculative verify batches forward drafted
         /// tokens that are not (yet) part of the sequence's token list.</summary>
-        public int[] OverrideFlatTokens { get; init; }
+        public int[]? OverrideFlatTokens { get; init; }
 
         /// <summary>When non-null, receives the post-final-norm hidden state of
         /// every row (numTokens ├ù hidden floats) ÔÇö llama.cpp's h_nextn, consumed
         /// by the MTP draft head.</summary>
-        public float[] CaptureHiddenAll { get; init; }
+        public float[]? CaptureHiddenAll { get; init; }
 
         /// <summary>When non-null, receives LM-head logits for every row
         /// (numTokens ├ù vocab floats) ÔÇö speculative verification needs per-row
         /// logits, not just the last position.</summary>
-        public float[] CaptureLogitsAll { get; init; }
+        public float[]? CaptureLogitsAll { get; init; }
     }
 }

@@ -3,6 +3,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>bin\</OutputPath>
+    <!-- This project is nullable-clean; keep it that way. New nullable warnings
+         (CS86xx/CS87xx) fail the build instead of silently accumulating. -->
+    <WarningsAsErrors>$(WarningsAsErrors);nullable</WarningsAsErrors>
     <IsPackable>true</IsPackable>
     <Description>Runtime services and contracts for TensorSharp GGUF inference: parsing, tokenization, prompt rendering, sampling, and output protocols.</Description>
     <PackageTags>$(TensorSharpPackageTags);runtime;tokenizer;sampling;prompt-template</PackageTags>

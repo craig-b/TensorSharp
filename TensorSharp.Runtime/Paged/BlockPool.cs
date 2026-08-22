@@ -6,6 +6,7 @@
 // TensorSharp is licensed under the BSD-3-Clause license found in the LICENSE file in the root directory of this source tree.
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace TensorSharp.Runtime.Paged
 {
@@ -53,7 +54,7 @@ namespace TensorSharp.Runtime.Paged
 
         /// <summary>Look up a block by content hash (prefix cache hit). Returns
         /// false when the hash isn't indexed.</summary>
-        public bool TryFindByHash(KvBlockHash hash, out KvBlock block)
+        public bool TryFindByHash(KvBlockHash hash, [NotNullWhen(true)] out KvBlock? block)
         {
             return _hashIndex.TryGet(hash, out block);
         }
@@ -70,7 +71,7 @@ namespace TensorSharp.Runtime.Paged
         /// <summary>Allocate <paramref name="count"/> empty blocks from the free
         /// queue. Returns null when the pool is exhausted (the scheduler will
         /// then preempt). Each returned block has RefCount=1, Used=0, no hash.</summary>
-        public KvBlock[] AllocateNew(int count)
+        public KvBlock[]? AllocateNew(int count)
         {
             if (count <= 0) return Array.Empty<KvBlock>();
             if (_freeQueue.Count < count) return null;
@@ -78,7 +79,7 @@ namespace TensorSharp.Runtime.Paged
             var result = new KvBlock[count];
             for (int i = 0; i < count; i++)
             {
-                KvBlock block = _freeQueue.Dequeue();
+                KvBlock block = _freeQueue.Dequeue()!;
                 EvictHashIfPresent(block);
                 block.RefCount = 1;
                 block.Used = 0;

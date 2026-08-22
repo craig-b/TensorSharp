@@ -10,6 +10,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace TensorSharp.Runtime.Scheduling
 {
@@ -92,12 +93,13 @@ namespace TensorSharp.Runtime.Scheduling
         /// <summary>
         /// Trunk forward identical to <see cref="IModelArchitecture.Forward"/>
         /// but additionally captures the post-final-norm hidden state of every
-        /// row into <paramref name="hAllOut"/> (n*hidden floats) and, when
+        /// row into <paramref name="hAllOut"/> (n*hidden floats; may be null
+        /// to skip the hidden capture) and, when
         /// <paramref name="allLogitsRows"/> is set, LM-head logits for every
         /// row into <paramref name="logitsOut"/> (n*vocab floats) instead of
         /// only the last row. Advances the KV caches like Forward().
         /// </summary>
-        void SpecForward(int[] tokens, float[] hAllOut, float[] logitsOut, bool allLogitsRows);
+        void SpecForward(int[] tokens, float[]? hAllOut, float[] logitsOut, bool allLogitsRows);
 
         /// <summary>One MTP draft step at <paramref name="pos"/>: consume
         /// (token, previous hidden), fill next-token logits and the chained
@@ -166,7 +168,7 @@ namespace TensorSharp.Runtime.Scheduling
         /// <paramref name="allLogitsRows"/>, else vocab floats for the last row).
         /// </summary>
         void SpecForwardBatched(SequenceState seq, int[] tokens, int startPos,
-            float[] hAllOut, float[] logitsOut, bool allLogitsRows);
+            float[]? hAllOut, float[] logitsOut, bool allLogitsRows);
 
         /// <summary>Snapshot the per-slot recurrent (GDN/SSM) state of
         /// <paramref name="seq"/> before a verify batch.</summary>
@@ -192,9 +194,10 @@ namespace TensorSharp.Runtime.Scheduling
     {
         /// <summary>Forward <paramref name="tokens"/> at the trunk's current
         /// position, capturing per-row hidden states and logits like
-        /// <see cref="IMtpSpeculativeModel.SpecForward"/>. Advances the trunk
-        /// by <c>tokens.Length</c>.</summary>
-        void Forward(int[] tokens, float[] hAllOut, float[] logitsOut, bool allLogitsRows);
+        /// <see cref="IMtpSpeculativeModel.SpecForward"/> (null
+        /// <paramref name="hAllOut"/> skips the hidden capture). Advances the
+        /// trunk by <c>tokens.Length</c>.</summary>
+        void Forward(int[] tokens, float[]? hAllOut, float[] logitsOut, bool allLogitsRows);
 
         /// <summary>Snapshot recurrent state before a verify batch.</summary>
         void SnapshotRecurrentState();
@@ -225,7 +228,7 @@ namespace TensorSharp.Runtime.Scheduling
         public LinearMtpTrunk(IMtpSpeculativeModel model)
             => _model = model ?? throw new ArgumentNullException(nameof(model));
 
-        public void Forward(int[] tokens, float[] hAllOut, float[] logitsOut, bool allLogitsRows)
+        public void Forward(int[] tokens, float[]? hAllOut, float[] logitsOut, bool allLogitsRows)
             => _model.SpecForward(tokens, hAllOut, logitsOut, allLogitsRows);
 
         public void SnapshotRecurrentState() => _model.MtpSnapshotRecurrentState();
@@ -370,8 +373,8 @@ namespace TensorSharp.Runtime.Scheduling
         private readonly float[] _stepLogits;    // [vocab] for plain/re-advance steps
         private readonly float[] _rowLogits;     // [vocab] scratch row handed to drawNext
         private readonly List<int> _draftTokens = new();
-        private float[] _chunkH;                 // [chunk * hidden] prefill h capture, shifted in place into (token k, h of k-1) pairs
-        private float[] _lastRowH;               // [hidden] the row the in-place shift would otherwise overwrite
+        private float[]? _chunkH;                // [chunk * hidden] prefill h capture, shifted in place into (token k, h of k-1) pairs
+        private float[]? _lastRowH;              // [hidden] the row the in-place shift would otherwise overwrite
 
         /// <summary>Maximum tokens drafted per speculative step (llama.cpp n_max).</summary>
         public int MaxDraftTokens { get; }
@@ -599,7 +602,7 @@ namespace TensorSharp.Runtime.Scheduling
 
         public MtpSpecStats Stats { get; } = new();
 
-        public MtpSpeculativeExecution(IMtpSpeculativeModel model, int maxDraftTokens = 8, IMtpSpecTrunk trunk = null)
+        public MtpSpeculativeExecution(IMtpSpeculativeModel model, int maxDraftTokens = 8, IMtpSpecTrunk? trunk = null)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
             if (!model.HasMtp)
@@ -711,8 +714,8 @@ namespace TensorSharp.Runtime.Scheduling
             int position,
             int kMax,
             Func<float[], int> drawNext,
-            Action<float[], IReadOnlyList<int>> adjustDraftLogits = null,
-            Action<int> onDraftAccepted = null)
+            Action<float[], IReadOnlyList<int>>? adjustDraftLogits = null,
+            Action<int>? onDraftAccepted = null)
         {
             ArgumentNullException.ThrowIfNull(drawNext);
 
@@ -891,6 +894,7 @@ namespace TensorSharp.Runtime.Scheduling
             };
         }
 
+        [MemberNotNull(nameof(_chunkH), nameof(_lastRowH))]
         private void EnsureChunkBuffers(int chunkLen)
         {
             long need = (long)chunkLen * _hidden;

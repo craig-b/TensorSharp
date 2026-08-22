@@ -119,7 +119,7 @@ namespace TensorSharp.Runtime.Scheduling
 
         private static int ReadInt(string name, int fallback)
         {
-            string raw = System.Environment.GetEnvironmentVariable(name);
+            string? raw = System.Environment.GetEnvironmentVariable(name);
             if (!string.IsNullOrEmpty(raw) && int.TryParse(raw, out int v) && v > 0)
                 return v;
             return fallback;
@@ -129,7 +129,7 @@ namespace TensorSharp.Runtime.Scheduling
         /// so the consumer can apply its own kind-specific default.</summary>
         private static float? ReadFloatOrNull(string name)
         {
-            string raw = System.Environment.GetEnvironmentVariable(name);
+            string? raw = System.Environment.GetEnvironmentVariable(name);
             if (!string.IsNullOrEmpty(raw)
                 && float.TryParse(raw, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out float v)
@@ -142,7 +142,7 @@ namespace TensorSharp.Runtime.Scheduling
 
         private static float ReadFloat(string name, float fallback)
         {
-            string raw = System.Environment.GetEnvironmentVariable(name);
+            string? raw = System.Environment.GetEnvironmentVariable(name);
             if (!string.IsNullOrEmpty(raw)
                 && float.TryParse(raw, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out float v)
@@ -157,7 +157,7 @@ namespace TensorSharp.Runtime.Scheduling
         // ReadInt, this honours an explicit "0" so a flag can actually be disabled.
         private static bool ReadBool(string name, bool fallback)
         {
-            string raw = System.Environment.GetEnvironmentVariable(name);
+            string? raw = System.Environment.GetEnvironmentVariable(name);
             if (string.IsNullOrEmpty(raw)) return fallback;
             raw = raw.Trim();
             if (raw == "1") return true;

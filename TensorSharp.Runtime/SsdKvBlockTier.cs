@@ -11,6 +11,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using Microsoft.Extensions.Logging;
@@ -51,7 +52,7 @@ namespace TensorSharp.Runtime
         private readonly Thread _writerThread;
         private volatile bool _disposed;
 
-        public SsdKvBlockTier(string rootDir, long maxBytes, string fingerprint, ILogger logger = null)
+        public SsdKvBlockTier(string rootDir, long maxBytes, string fingerprint, ILogger? logger = null)
         {
             if (string.IsNullOrWhiteSpace(rootDir))
                 throw new ArgumentException("Root directory must be a non-empty path.", nameof(rootDir));
@@ -85,7 +86,7 @@ namespace TensorSharp.Runtime
             get { lock (_gate) return _index.Count; }
         }
 
-        public bool TryRead(KvBlockHash hash, out byte[] payload)
+        public bool TryRead(KvBlockHash hash, [NotNullWhen(true)] out byte[]? payload)
         {
             string path = PathFor(hash);
             lock (_gate)
@@ -205,9 +206,9 @@ namespace TensorSharp.Runtime
         private void WriteBlock(KvBlockHash hash, byte[] payload)
         {
             string path = PathFor(hash);
-            string dir = Path.GetDirectoryName(path);
+            string? dir = Path.GetDirectoryName(path);
             if (!Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
+                Directory.CreateDirectory(dir!);
 
             string tempPath = path + ".tmp";
             try
@@ -234,7 +235,7 @@ namespace TensorSharp.Runtime
             }
 
             long entryBytes = payload.LongLength + HeaderSize;
-            List<KvBlockHash> evicted = null;
+            List<KvBlockHash>? evicted = null;
             lock (_gate)
             {
                 if (_index.TryGetValue(hash, out var existing))
