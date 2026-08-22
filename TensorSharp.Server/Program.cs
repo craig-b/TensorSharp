@@ -81,8 +81,21 @@ bool pagedKvFlagsApplied = ServerOptionsBuilder.ApplyPagedKvCacheCliFlags(args);
 bool redisFlagsApplied = ServerOptionsBuilder.ApplyRedisCliFlags(args);
 // Typed model-layer overrides, resolved per model load (env < per-model
 // preset < CLI/--set) and passed to ModelBase.Create. All-null when nothing
-// covered is configured, which keeps env-var behaviour.
+// covered is configured, which keeps env-var behaviour. Validated eagerly so
+// a --set typo or a broken preset block (any model's, not just the startup
+// one) fails startup instead of surfacing at some later runtime model load.
 var modelOptionsResolver = ServerOptionsBuilder.CreateModelOptionsResolver(args, configFilePaths);
+try
+{
+    ModelKnobConfig.ValidatePresets(configFilePaths);
+    modelOptionsResolver(hostingOptions.StartupModelPath);
+}
+catch (ArgumentException ex)
+{
+    Console.Error.WriteLine("Configuration error: " + ex.Message);
+    Environment.ExitCode = 1;
+    return;
+}
 // Typed scheduler / MTP overrides (--continuous-batching, --prefill-chunk-size,
 // --mtp-*, --draft-model), installed as the ambient SchedulerOverrides.Current
 // instead of TS_SCHED_* / TS_MTP_* env writes. Must run before InferenceEngine

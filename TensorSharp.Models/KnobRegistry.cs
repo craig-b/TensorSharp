@@ -221,6 +221,12 @@ namespace TensorSharp.Models
             sb.AppendLine("\"strict opt-in\" bools are off unless exactly `1`; \"inverted opt-out\"");
             sb.AppendLine("vars disable their feature when set.");
             sb.AppendLine();
+            sb.AppendLine("On the server, any knob is reachable without a dedicated flag:");
+            sb.AppendLine("`--set ENV_VAR=VALUE` (bools take `1`/`0`) applies at CLI precedence, and a");
+            sb.AppendLine("`--config` file's `\"presets\"` object holds per-model blocks keyed by GGUF");
+            sb.AppendLine("file name whose keys are the Property column below. Precedence, lowest to");
+            sb.AppendLine("highest: env var, per-model preset, CLI flag / `--set`.");
+            sb.AppendLine();
             sb.AppendLine("| Property | Env var | Type | Dialect | CLI flags | Description |");
             sb.AppendLine("|---|---|---|---|---|---|");
             foreach (var k in All)

@@ -93,6 +93,25 @@ how far along it is. See [`auto-download.json`](auto-download.json).
 
 `url` (singular) is accepted as a shorthand for a single-entry `urls`.
 
+## Per-model tuning presets (server)
+
+A reserved `presets` object holds per-model tuning-knob blocks, keyed by GGUF
+file name. Keys inside a block are knob property names from
+[`docs/knobs.md`](../docs/knobs.md); the block applies whenever that model is
+loaded (including runtime model switches in the web UI) — above the knob's
+environment variable, below an explicit CLI flag or `--set`. Unknown keys and
+out-of-range values fail server startup rather than being silently ignored.
+
+```json
+{
+  "model": "C:/models/Qwen3.5-9B-Q8_0.gguf",
+  "presets": {
+    "Qwen3.5-9B-Q8_0.gguf":  { "PrefillChunk": 512, "FullDecode": false },
+    "gemma-4-E4B-it-Q8_0.gguf": { "PrefillWarmup": false }
+  }
+}
+```
+
 ## Examples in this folder
 
 Every example uses **real, public, ungated** GGUF URLs, so each one works on a

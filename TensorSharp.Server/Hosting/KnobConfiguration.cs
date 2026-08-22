@@ -123,31 +123,82 @@ namespace TensorSharp.Server.Hosting
 
         /// <summary>Reads <c>presets.&lt;modelFileName&gt;</c> from a
         /// <c>--config</c> JSON file, remapped onto the knobs' config keys.
-        /// Preset keys are options-record property names; an unknown key is a
-        /// config error, not a silent no-op.</summary>
+        /// Preset keys are options-record property names; an unknown key or an
+        /// out-of-range value is a config error, not a silent no-op — a preset
+        /// is explicit operator intent, unlike an ambient env var.</summary>
         private static Dictionary<string, string> ReadPreset(string configPath, string modelFileName)
         {
             var remapped = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (!File.Exists(configPath))
                 return remapped;
 
-            var json = new ConfigurationBuilder()
-                .AddJsonFile(Path.GetFullPath(configPath), optional: false)
-                .Build();
-            IConfigurationSection preset = json.GetSection("presets").GetSection(modelFileName);
+            IConfigurationSection preset = LoadJson(configPath).GetSection("presets").GetSection(modelFileName);
             foreach (IConfigurationSection entry in preset.GetChildren())
-            {
-                KnobDef knob = KnobRegistry.ByProperty(entry.Key);
-                if (knob == null)
-                {
-                    throw new ArgumentException(
-                        $"Unknown knob '{entry.Key}' in preset '{modelFileName}' of {configPath}. "
-                        + "Preset keys are options property names — see docs/knobs.md.");
-                }
-                if (entry.Value != null)
-                    remapped[knob.ConfigKey] = entry.Value;
-            }
+                AddPresetEntry(remapped, entry, modelFileName, configPath);
             return remapped;
+        }
+
+        /// <summary>Startup validation: walks EVERY preset block in the given
+        /// config files so a broken preset fails the server at startup rather
+        /// than at whichever later model load would first read it.</summary>
+        public static void ValidatePresets(IReadOnlyList<string> configPaths)
+        {
+            if (configPaths == null)
+                return;
+            foreach (string path in configPaths)
+            {
+                if (!File.Exists(path))
+                    continue;
+                foreach (IConfigurationSection model in LoadJson(path).GetSection("presets").GetChildren())
+                {
+                    var sink = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (IConfigurationSection entry in model.GetChildren())
+                        AddPresetEntry(sink, entry, model.Key, path);
+                }
+            }
+        }
+
+        private static IConfigurationRoot LoadJson(string configPath)
+            => new ConfigurationBuilder().AddJsonFile(Path.GetFullPath(configPath), optional: false).Build();
+
+        private static void AddPresetEntry(
+            Dictionary<string, string> remapped, IConfigurationSection entry, string modelFileName, string configPath)
+        {
+            KnobDef knob = KnobRegistry.ByProperty(entry.Key);
+            if (knob == null)
+            {
+                throw new ArgumentException(
+                    $"Unknown knob '{entry.Key}' in preset '{modelFileName}' of {configPath}. "
+                    + "Preset keys are options property names — see docs/knobs.md.");
+            }
+            if (entry.Value == null)
+                return;
+
+            string value = entry.Value;
+            string normalized;
+            if (knob.Kind == KnobKind.Bool)
+            {
+                // JSON true/false arrive as "True"/"False" from the provider;
+                // accept 1/0 too for symmetry with --set.
+                if (bool.TryParse(value, out bool b))
+                    normalized = b ? "true" : "false";
+                else if (value == "1" || value == "0")
+                    normalized = value == "1" ? "true" : "false";
+                else
+                    normalized = null;
+            }
+            else
+            {
+                normalized = KnobValue.TryNormalize(knob, value, out string n) ? n : null;
+            }
+
+            if (normalized == null)
+            {
+                throw new ArgumentException(
+                    $"Invalid value for knob '{entry.Key}' in preset '{modelFileName}' of {configPath}: "
+                    + $"'{value}'. Expected {(knob.Kind == KnobKind.Bool ? "true/false or 1/0" : ExpectedInput(knob))}.");
+            }
+            remapped[knob.ConfigKey] = normalized;
         }
 
         /// <summary>Binds as <see cref="Qwen35Options"/> so the Qwen-specific

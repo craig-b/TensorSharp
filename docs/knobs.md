@@ -9,6 +9,12 @@ listed below. "loose" bools default on and treat `0`/`false` as off;
 "strict opt-in" bools are off unless exactly `1`; "inverted opt-out"
 vars disable their feature when set.
 
+On the server, any knob is reachable without a dedicated flag:
+`--set ENV_VAR=VALUE` (bools take `1`/`0`) applies at CLI precedence, and a
+`--config` file's `"presets"` object holds per-model blocks keyed by GGUF
+file name whose keys are the Property column below. Precedence, lowest to
+highest: env var, per-model preset, CLI flag / `--set`.
+
 | Property | Env var | Type | Dialect | CLI flags | Description |
 |---|---|---|---|---|---|
 | `MlxMlockGguf` | `TS_MLX_MLOCK_GGUF` | bool | default on; set keeps on only when `1` |  | mlock(2) the GGUF mapping so weights stay resident (MLX). |
