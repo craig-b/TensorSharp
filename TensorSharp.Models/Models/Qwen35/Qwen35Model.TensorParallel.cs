@@ -142,13 +142,11 @@ namespace TensorSharp.Models
         // the two runs is what localizes a TP divergence to a layer — without it
         // the only observable is the sampled text, which says nothing about where
         // the two paths parted.
-        private static readonly bool LayerTraceEnabled =
-            string.Equals(Environment.GetEnvironmentVariable("TS_QWEN35_LAYER_TRACE"), "1", StringComparison.Ordinal);
         private int _layerTraceForwards;
 
         private unsafe void TraceLayer(Tensor hidden, int layer, string tag)
         {
-            if (!LayerTraceEnabled || _layerTraceForwards > 0 || hidden == null)
+            if (!_opts.LayerTrace.Value || _layerTraceForwards > 0 || hidden == null)
                 return;
 
             long n = hidden.ElementCount();
@@ -1390,7 +1388,7 @@ namespace TensorSharp.Models
             normed.Dispose();
 
             long t2 = Stopwatch.GetTimestamp();
-            if (LayerTraceEnabled && _layerTraceForwards <= 1)
+            if (_opts.LayerTrace.Value && _layerTraceForwards <= 1)
                 Console.WriteLine($"[TRACE-lm] columnParallel={_tpLmHeadKey != null} " +
                     $"activeRank={(IsGgmlBackend ? GgmlBasicOps.GetActiveRank() : -1)}");
             if (_tpLmHeadKey != null)

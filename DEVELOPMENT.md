@@ -433,6 +433,46 @@ the fused path engages.
 - **KV block codecs**: blocks can be optionally compressed in-place with `TurboQuantKvCodec` (2-bit affine, Q4, or Q8) via `--paged-kv-quant-bits`, trading accuracy for a smaller per-block bandwidth and memory footprint — roughly half (Q8), a quarter (Q4), or a tenth (2-bit, fp32 blocks). The 2-bit tier uses an affine per-group min+scale (the block-min idea behind llama.cpp's Q2_K) so its four codes span the group's actual range; it is intended for long-context far-prefix reuse where attention weights dwarf the quantization noise. Recurrent-state models fall back to passthrough automatically.
 
 
+## Tuning knobs and configuration
+
+The model-layer tuning knobs (the `TS_*` env vars) are declared once in
+`TensorSharp.Models/KnobRegistry.cs`: property name, env var, value kind, bool
+parse dialect, int lower bound, CLI flags, and a one-line summary. The
+registry drives everything downstream — the env→configuration mapping
+(`KnobEnvConfigurationSource`), the `--set` escape hatch, per-model `presets`
+validation, and the generated knob reference in `docs/knobs.md` (kept in sync
+by `KnobRegistryTests.CommittedKnobDocIsInSync`).
+
+Knob values reach a model as a typed `ModelOptions` / `Qwen35Options` record
+passed to `ModelBase.Create`. Every read site keeps the shape
+`_opts.X ?? <legacy env read>`: a property the configuration layer did not set
+stays null and the knob's own env read decides, so env-only usage (and tests
+that set env vars directly) behave exactly as before. The configuration layer
+normalizes env values per dialect and deliberately maps only values every read
+site in a dialect family agrees on (`KnobValue`); anything ambiguous is left
+to the site.
+
+Server-side precedence, lowest to highest: env var, per-model `presets` block
+from a `--config` file (keyed by GGUF file name), CLI flag / `--set`. `--set`
+and preset errors fail startup (unknown names, out-of-dialect values).
+Scheduler and MTP flags travel the same way via the ambient
+`SchedulerOverrides.Current` (`TensorSharp.Runtime/Scheduling`), since
+`BatchExecutor` re-reads its options every step and has no per-request seam.
+
+Model-layer knobs are resolved once, at model construction: `KnobResolver`
+fills every unset options property from its env var using the registry's
+exact dialect, and the read sites consume the resolved value (`_opts.X.Value`
+for bools, `_opts.X ?? <non-env default>` for ints whose default is computed
+at the site). Deep code never reads knob env vars directly, and env changes
+after a model is created do not affect that model.
+
+To add a knob: add the nullable property to the options record, add one
+`KnobRegistry` entry whose `BoolDialect`/`IntMin` matches the intended parse
+exactly (the resolver IS the parse), write the read site against the resolved
+property, and regenerate `docs/knobs.md` (run the sync test; it prints the
+path when stale). Nothing else needs touching — `--set`, presets, and the
+docs table pick the knob up from the registry.
+
 ## Testing
 
 ### Unit tests (xUnit)

@@ -1324,10 +1324,9 @@ namespace TensorSharp.Models
         // Chunk size for ForwardRefill: long prompts are processed in this-many-token
         // chunks so the per-layer attention-score allocation stays bounded.
         // Override with TS_PREFILL_CHUNK when tuning.
-        private static int ResolvePrefillChunkSize()
+        private int ResolvePrefillChunkSize()
         {
-            string env = Environment.GetEnvironmentVariable("TS_PREFILL_CHUNK");
-            if (!string.IsNullOrEmpty(env) && int.TryParse(env, out int v) && v > 0)
+            if (Options.PrefillChunk is int v && v > 0)
                 return v;
             return 2048;
         }

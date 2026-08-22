@@ -33,9 +33,13 @@ Console.OutputEncoding = System.Text.Encoding.UTF8;
 // Merge in options from a --config <file.json> before anything reads argv.
 // File-derived tokens are spliced in ahead of the real command line, so any
 // option also passed on the command line overrides the file (every option
-// pass below is last-one-wins). The --config flag itself is stripped here.
+// pass below is last-one-wins). The --config flag itself is stripped here;
+// the paths are kept for the per-model "presets" blocks the model-options
+// resolver reads at load time.
+System.Collections.Generic.IReadOnlyList<string> configFilePaths;
 try
 {
+    configFilePaths = ServerOptionsBuilder.ReadConfigPaths(args);
     args = ConfigFileArgs.Expand(args);
 }
 catch (Exception ex) when (ex is ArgumentException or FileNotFoundException)
@@ -75,14 +79,30 @@ bool pagedKvFlagsApplied = ServerOptionsBuilder.ApplyPagedKvCacheCliFlags(args);
 // TS_RESPONSES_STORE_REDIS_URL so a single flag enables Redis for both the
 // paged KV cache tier and the Responses API store.
 bool redisFlagsApplied = ServerOptionsBuilder.ApplyRedisCliFlags(args);
-// Translate --continuous-batching / --no-continuous-batching into env vars
-// that gate BatchExecutor (TS_SCHED_DISABLE_BATCHED) and Qwen3.5 ForwardBatch
-// (TS_QWEN35_BATCHED). Must run before InferenceEngine constructs its
-// BatchExecutor and the per-model batched-paged adapters initialise.
-bool continuousBatchingFlagApplied = ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(args);
-// Translate --mtp-spec / --mtp-draft / --mtp-pmin into the TS_MTP_* env vars
-// read by SchedulerConfig.FromEnvironment when the engine is constructed.
-bool mtpSpecFlagsApplied = ServerOptionsBuilder.ApplyMtpSpeculativeCliFlags(args);
+// Typed model-layer overrides, resolved per model load (env < per-model
+// preset < CLI/--set) and passed to ModelBase.Create. All-null when nothing
+// covered is configured, which keeps env-var behaviour. Validated eagerly so
+// a --set typo or a broken preset block (any model's, not just the startup
+// one) fails startup instead of surfacing at some later runtime model load.
+var modelOptionsResolver = ServerOptionsBuilder.CreateModelOptionsResolver(args, configFilePaths);
+try
+{
+    ModelKnobConfig.ValidatePresets(configFilePaths);
+    modelOptionsResolver(hostingOptions.StartupModelPath);
+}
+catch (ArgumentException ex)
+{
+    Console.Error.WriteLine("Configuration error: " + ex.Message);
+    Environment.ExitCode = 1;
+    return;
+}
+// Typed scheduler / MTP overrides (--continuous-batching, --prefill-chunk-size,
+// --mtp-*, --draft-model), installed as the ambient SchedulerOverrides.Current
+// instead of TS_SCHED_* / TS_MTP_* env writes. Must run before InferenceEngine
+// constructs its BatchExecutor; null keeps env-only behaviour.
+var schedulerOverrides = ServerOptionsBuilder.BuildSchedulerOverrides(args);
+if (schedulerOverrides != null)
+    TensorSharp.Runtime.Scheduling.SchedulerOverrides.Current = schedulerOverrides;
 // Translate --qwen-image-vae / --qwen-image-vl / --qwen-image-mmproj into the
 // TS_QWEN_IMAGE_* env vars QwenImageModel reads to locate the VAE, Qwen2.5-VL
 // text-encoder, and mmproj GGUFs. Must run before the startup model is loaded.
@@ -133,6 +153,7 @@ var uploadPolicy = new UploadStoragePolicy(
 builder.Services.AddSingleton(uploadPolicy);
 if (hostingOptions.UploadTtl.HasValue)
     builder.Services.AddHostedService<UploadCleanupService>();
+builder.Services.AddSingleton(modelOptionsResolver);
 builder.Services.AddSingleton<ModelService>();
 builder.Services.AddSingleton<InferenceQueue>();
 builder.Services.AddSingleton<SessionManager>();
@@ -201,10 +222,11 @@ if (redisFlagsApplied)
         Environment.GetEnvironmentVariable("TS_RESPONSES_STORE_REDIS_URL") ?? "(disabled)");
 }
 
-if (mtpSpecFlagsApplied)
+if (schedulerOverrides?.HasMtpOverrides == true)
 {
     var schedCfg = TensorSharp.Runtime.Scheduling.SchedulerConfig.FromEnvironment();
-    string blockDraft = Environment.GetEnvironmentVariable("TS_DSV4_DSPARK");
+    string blockDraft = schedulerOverrides.Dsv4DsparkPath
+        ?? Environment.GetEnvironmentVariable("TS_DSV4_DSPARK");
     startupLogger.LogInformation(LogEventIds.HostConfiguration,
         "MTP speculative decoding configured via CLI: enabled={Enabled} maxDraft={MaxDraft} pMin={PMin} draftModel={DraftModel} " +
         "(engages for solo sequences on models that ship a draft head)",

@@ -52,6 +52,7 @@ namespace TensorSharp.Models
         private readonly int _gridPerSide;
         private readonly float _ropeTheta;
         private readonly string[] _blockPrefixes;
+        private readonly Qwen35Options _opts;
 
         private sealed class RopeCache
         {
@@ -63,8 +64,9 @@ namespace TensorSharp.Models
         public int PatchSize => _patchSize;
         public int SpatialMergeSize => _spatialMergeSize;
 
-        public Qwen35VisionEncoder(string mmProjPath, IAllocator allocator)
+        public Qwen35VisionEncoder(string mmProjPath, IAllocator allocator, Qwen35Options options = null)
         {
+            _opts = options ?? Qwen35Options.Default;
             _allocator = allocator;
             _useNativeAttention = allocator is GgmlAllocator;
             _cudaDirect = allocator is TensorSharp.Cuda.CudaAllocator;
@@ -182,7 +184,7 @@ namespace TensorSharp.Models
             // round-tripping dispatches per block. Falls back to the per-block
             // loop on any failure. CPU-allocator path keeps the per-block loop.
             bool wholeEncoderDone = false;
-            if (_useNativeAttention && s_wholeEncoderFusedEnabled)
+            if (_useNativeAttention && _opts.VencFused.Value)
             {
                 wholeEncoderDone = TryWholeEncoderFused(blockOrdered, numPatches, headDim, halfDim,
                     ropeCache.CosTable, ropeCache.SinTable);
@@ -191,7 +193,7 @@ namespace TensorSharp.Models
             {
                 for (int i = 0; i < _blockCount; i++)
                 {
-                    if (!s_traceEnabled)
+                    if (!_opts.VencTrace.Value)
                         Console.Write($"\r  Vision encoder block {i + 1}/{_blockCount}...");
                     blockOrdered = EncoderBlock(blockOrdered, i, numPatches, headDim, halfDim,
                         ropeCache.CosTable, ropeCache.SinTable);
@@ -479,27 +481,21 @@ namespace TensorSharp.Models
         }
 
         // TS_QWEN35_VENC_FUSED=0 forces the per-block path (A/B + safety kill-switch).
-        private static readonly bool s_wholeEncoderFusedEnabled =
-            Environment.GetEnvironmentVariable("TS_QWEN35_VENC_FUSED") != "0";
 
         // TS_QWEN35_VENC_FUSED_ATTN=0 bypasses the fused native attention
         // subgraph in the per-block path (keeping the fused MLP), forcing the
         // managed split + RoPE + Ops.ScaledDotProductAttention chain. A/B
         // switch for isolating native attention-kernel issues; this is how
         // the head_dim-72 CUDA flash-attn precision bug was pinned down.
-        private static readonly bool s_fusedAttnEnabled =
-            Environment.GetEnvironmentVariable("TS_QWEN35_VENC_FUSED_ATTN") != "0";
 
         // TS_QWEN35_VENC_TRACE=1 prints a checksum of the residual stream at every
         // encoder stage. Used to localize a numeric divergence between backends
         // (run the same image through two allocators and diff the first stage whose
         // checksum differs). Forces a host read, so it is debug-only.
-        private static readonly bool s_traceEnabled =
-            Environment.GetEnvironmentVariable("TS_QWEN35_VENC_TRACE") == "1";
 
-        private static void Trace(string label, Tensor t)
+        private void Trace(string label, Tensor t)
         {
-            if (!s_traceEnabled || t == null)
+            if (!_opts.VencTrace.Value || t == null)
                 return;
 
             using var contig = t.IsContiguous() ? null : Ops.NewContiguous(t);
@@ -593,7 +589,7 @@ namespace TensorSharp.Models
 
             // Fully fused attention path: LN + QKV + RoPE + SDPA + out + residual in one dispatch.
             bool fusedAttn = false;
-            if (_useNativeAttention && s_fusedAttnEnabled
+            if (_useNativeAttention && _opts.VencFusedAttn.Value
                 && _weights.TryGetValue($"{prefix}.ln1.weight", out var ln1W)
                 && _weights.TryGetValue($"{prefix}.ln1.bias", out var ln1B)
                 && _weights.TryGetValue($"{prefix}.attn_qkv.weight", out var qkvW)

@@ -19,20 +19,28 @@ namespace TensorSharp.Server
     {
         private readonly ILogger _logger;
         private readonly Func<string, BackendType, ITensorParallelGroup, string, ModelBase> _createModel;
+        private readonly Func<string, ModelOptions> _modelOptionsResolver;
 
         private ModelBase _model;
         private string _loadedModelPath;
         private string _loadedMmProjPath;
         private BackendType _backend;
 
-        public ModelLifecycleService(ILogger logger)
-            : this(logger, static (path, backend, tpGroup, draftPath) =>
-                ModelBase.Create(path, backend, tpGroup: tpGroup, draftModelPath: draftPath))
+        /// <summary><paramref name="modelOptionsResolver"/> supplies the typed
+        /// options for each <see cref="ModelBase.Create"/> call (it sees the
+        /// loading model's path, so per-model presets apply); null keeps pure
+        /// env-var behaviour.</summary>
+        public ModelLifecycleService(ILogger logger, Func<string, ModelOptions> modelOptionsResolver = null)
         {
+            _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+            _modelOptionsResolver = modelOptionsResolver;
+            _createModel = (path, backend, tpGroup, draftPath) =>
+                ModelBase.Create(path, backend, tpGroup: tpGroup, draftModelPath: draftPath,
+                    options: _modelOptionsResolver?.Invoke(path));
         }
 
         /// <summary>Test seam: <paramref name="createModel"/> stands in for
-        /// <see cref="ModelBase.Create(string, BackendType, int, ITensorParallelGroup, string)"/>.</summary>
+        /// <see cref="ModelBase.Create(string, BackendType, int, ITensorParallelGroup, string, ModelOptions)"/>.</summary>
         internal ModelLifecycleService(ILogger logger, Func<string, BackendType, ITensorParallelGroup, string, ModelBase> createModel)
         {
             _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
@@ -228,7 +236,8 @@ namespace TensorSharp.Server
                 // and --mtp-spec engages. (Qwen3.6 embeds its NextN block in the
                 // trunk and needs no separate file.) MtpDraftActivationError was
                 // cleared when the previous model was unloaded.
-                string mtpDraftPath = Environment.GetEnvironmentVariable("TS_MTP_DRAFT_MODEL");
+                string mtpDraftPath = TensorSharp.Runtime.Scheduling.SchedulerOverrides.Current?.MtpDraftModelPath
+                    ?? Environment.GetEnvironmentVariable("TS_MTP_DRAFT_MODEL");
                 if (!string.IsNullOrEmpty(mtpDraftPath))
                 {
                     if (_model is Gemma4Model g4)

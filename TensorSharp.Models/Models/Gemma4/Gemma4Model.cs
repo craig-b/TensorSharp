@@ -221,8 +221,6 @@ namespace TensorSharp.Models
         // is CUDA-graph capturable (see TryCudaMoEForwardOnDevice / the ts_moe_*
         // kernels). Per-layer device pointer tables address the resident per-expert
         // gate_up / down weights by the on-device expert id.
-        private static readonly bool s_cudaMoeOnDeviceEnabled =
-            Environment.GetEnvironmentVariable("TS_CUDA_MOE_ONDEVICE") != "0";
         private IntPtr[] _cudaMoEGateUpPtrTable;   // per layer: device u64[numExperts]
         private IntPtr[] _cudaMoEDownPtrTable;      // per layer: device u64[numExperts]
         private IntPtr[] _cudaMoEScalePtr;          // per layer: device f32[numExperts] or Zero
@@ -1787,8 +1785,7 @@ namespace TensorSharp.Models
                 _backend == BackendType.Cuda && IsE4BPerformanceProfile
                     ? 4096
                     : 2048;
-            string chunkOverride = Environment.GetEnvironmentVariable("TS_PREFILL_CHUNK");
-            if (!string.IsNullOrEmpty(chunkOverride) && int.TryParse(chunkOverride, out int chunkOv) && chunkOv > 0)
+            if (Options.PrefillChunk is int chunkOv && chunkOv > 0)
                 prefillChunkSize = chunkOv;
             return prefillChunkSize;
         }
@@ -4473,7 +4470,7 @@ namespace TensorSharp.Models
             _cudaMoETablesReady = true;
             _cudaMoEUsable = false;
 
-            if (_backend != BackendType.Cuda || !s_cudaMoeOnDeviceEnabled
+            if (_backend != BackendType.Cuda || !Options.CudaMoeOnDevice.Value
                 || _numExperts <= 0 || _allocator is not CudaAllocator cudaAllocator)
                 return;
 

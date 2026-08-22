@@ -192,8 +192,6 @@ namespace TensorSharp.Models
         }
 
         /// <summary>Disable with TS_QWEN35_TP_FUSED=0.</summary>
-        private static readonly bool _tpFusedBlocksEnabled =
-            Environment.GetEnvironmentVariable("TS_QWEN35_TP_FUSED") != "0";
 
         /// <summary>
         /// Report the first reason the fused per-rank attention block declined, once,
@@ -224,7 +222,7 @@ namespace TensorSharp.Models
             _tpFusedAttnChecked = true;
 
             _tpFusedAttnReady =
-                _tpFusedBlocksEnabled &&
+                _opts.TpFused.Value &&
                 IsGgmlBackend &&
                 IsTensorParallel &&
                 // One driving thread submits every rank, so this is a
@@ -236,7 +234,7 @@ namespace TensorSharp.Models
                 _tpAttnPlans = new IntPtr[TpDegree];
             else if (IsTensorParallel)
                 TpAttnBail(
-                    !_tpFusedBlocksEnabled ? "disabled via TS_QWEN35_TP_FUSED=0"
+                    !_opts.TpFused.Value ? "disabled via TS_QWEN35_TP_FUSED=0"
                     : !IsGgmlBackend ? $"backend {_backend} has no fused TP attention kernel"
                     : GlobalTpDegree != TpDegree ? $"multi-node TP (global={GlobalTpDegree}, local={TpDegree})"
                     : $"the native bridge reports no fused TP support for tp={TpDegree}");

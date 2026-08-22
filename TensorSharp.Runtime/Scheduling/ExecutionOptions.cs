@@ -65,7 +65,7 @@ namespace TensorSharp.Runtime.Scheduling
         /// <summary>Read the current override state from the environment.</summary>
         public static ExecutionOptions FromEnvironment() => new()
         {
-            BatchedPathDisabled = ReadFlag("TS_SCHED_DISABLE_BATCHED", false),
+            BatchedPathDisabled = SchedulerOverrides.Current?.DisableBatched ?? ReadFlag("TS_SCHED_DISABLE_BATCHED", false),
             BatchedN1FastPathEnabled = ReadFlag("TS_BATCHED_N1_FAST_PATH", true),
             PerSeqFusedEnabled = ReadFlag("TS_PER_SEQ_FUSED", true),
             BatchedFusedDecodeEnabled = ReadStrictOptIn("TS_BATCHED_FUSED_DECODE"),

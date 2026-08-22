@@ -29,7 +29,7 @@ namespace TensorSharp.Server
         {
         }
 
-        public ModelService(ILogger<ModelService> logger)
+        public ModelService(ILogger<ModelService> logger, Func<string, ModelOptions> modelOptionsResolver = null)
         {
             logger ??= NullLogger<ModelService>.Instance;
 
@@ -37,7 +37,7 @@ namespace TensorSharp.Server
             var kvCacheRenderer = new KVCachePromptRenderer(promptRenderer);
             var telemetry = new InferenceTelemetry(logger);
 
-            _lifecycle = new ModelLifecycleService(logger);
+            _lifecycle = new ModelLifecycleService(logger, modelOptionsResolver);
             _intrinsicSession = new ChatSession("__svc_intrinsic__");
             _engineHost = new InferenceEngineHost(_lifecycle, logger);
             _generation = new ChatGenerationPipeline(_lifecycle, _engineHost, kvCacheRenderer, telemetry, logger);

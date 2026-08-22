@@ -57,15 +57,6 @@ namespace TensorSharp.Models
         private Qwen35LayerDecodeArgs[] _bfdLayers;
         private int[] _bfdGdnSlot;        // layer -> gdn index (or -1)
 
-        private static bool IsBatchedFusedEnabled()
-        {
-            // Default ON: the true token-batched fused decode is the vLLM-style
-            // continuous-batching decode path for ggml_cuda. Set
-            // TS_QWEN35_BATCHED_FUSED=0 to force the op-by-op batched path.
-            string raw = Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED_FUSED");
-            if (string.IsNullOrEmpty(raw)) return true;
-            return raw != "0" && !string.Equals(raw, "false", StringComparison.OrdinalIgnoreCase);
-        }
 
         /// <summary>Invalidate the batched-fused KV-pool seed. Called whenever the
         /// op-by-op path runs (it writes the host paged pool the device pool is
@@ -386,7 +377,8 @@ namespace TensorSharp.Models
             // pure-decode run (no op-by-op interleaving) the device pool persists
             // via in-place set_rows, so the mirror is only needed for consistency
             // across path transitions — skip it with TS_QWEN35_BFD_NOMIRROR=1.
-            if (!string.Equals(Environment.GetEnvironmentVariable("TS_QWEN35_BFD_NOMIRROR"), "1", StringComparison.Ordinal))
+            bool noMirror = _opts.BfdNoMirror.Value;
+            if (!noMirror)
                 MirrorNewSlotsToHostPool(slotMapping, numTokens, kvFlat);
             return hiddenStates;
         }

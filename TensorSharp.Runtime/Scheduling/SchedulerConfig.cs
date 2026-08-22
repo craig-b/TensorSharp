@@ -99,19 +99,20 @@ namespace TensorSharp.Runtime.Scheduling
 
         public static SchedulerConfig FromEnvironment()
         {
+            SchedulerOverrides? ov = SchedulerOverrides.Current;
             var cfg = new SchedulerConfig
             {
                 MaxNumBatchedTokens = ReadInt("TS_SCHED_MAX_BATCHED_TOKENS", 4096),
                 MaxNumRunningSequences = ReadInt("TS_SCHED_MAX_RUNNING_SEQS", 16),
-                MaxPrefillChunkSize = ReadInt("TS_SCHED_PREFILL_CHUNK", 1024),
+                MaxPrefillChunkSize = ov?.PrefillChunkSize ?? ReadInt("TS_SCHED_PREFILL_CHUNK", 1024),
                 SoloPrefillChunkSize = ReadInt("TS_SCHED_SOLO_PREFILL_CHUNK", 8192),
                 NumBlocks = ReadInt("TS_SCHED_NUM_BLOCKS", 256),
                 BlockSize = ReadInt("TS_SCHED_BLOCK_SIZE", 256),
                 EnablePrefixCaching = ReadBool("TS_SCHED_PREFIX_CACHE", true),
                 DecodeQuantumTokens = ReadInt("TS_SCHED_DECODE_QUANTUM", 256),
-                MtpSpeculativeEnabled = ReadBool("TS_MTP_SPEC", false),
-                MtpMaxDraftTokens = ReadInt("TS_MTP_DRAFT", 8),
-                MtpMinDraftProb = ReadFloatOrNull("TS_MTP_PMIN"),
+                MtpSpeculativeEnabled = ov?.MtpSpeculative ?? ReadBool("TS_MTP_SPEC", false),
+                MtpMaxDraftTokens = ov?.MtpMaxDraftTokens ?? ReadInt("TS_MTP_DRAFT", 8),
+                MtpMinDraftProb = ov?.MtpMinDraftProb ?? ReadFloatOrNull("TS_MTP_PMIN"),
             };
             return cfg;
         }

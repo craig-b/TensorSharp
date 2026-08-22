@@ -101,14 +101,14 @@ namespace TensorSharp.Models
         // capability flag and ForwardBatch itself honour the same gate, so
         // BatchExecutor's "use the batched path" decision is consistent
         // with what ForwardBatch will actually accept.
-        public bool SupportsBatchedMultimodal => IsBatchedPathEnabled();
+        public bool SupportsBatchedMultimodal => _opts.Batched.Value;
 
         /// <summary>Declared availability of the batched path (see
         /// <see cref="IBatchedPagedModel.BatchedForwardAvailable"/>): follows
         /// the <c>TS_QWEN35_BATCHED</c> / <c>--no-continuous-batching</c>
         /// opt-out so <c>ExecutionPlanner</c> routes to the per-seq fallback
         /// up front instead of via a NotSupportedException round trip.</summary>
-        public bool BatchedForwardAvailable => IsBatchedPathEnabled() && !IsTensorParallel;
+        public bool BatchedForwardAvailable => _opts.Batched.Value && !IsTensorParallel;
 
         // ====================================================================
         // N=1 fast path (BatchExecutor): when only ONE sequence is scheduled,
@@ -141,7 +141,8 @@ namespace TensorSharp.Models
         // TS_QWEN35_MIGRATE=0 to force the per-seq fallback.
         public bool TryMigrateLinearKVToPaged(SequenceState owner, int blockSize)
         {
-            if (string.Equals(Environment.GetEnvironmentVariable("TS_QWEN35_MIGRATE"), "0", StringComparison.Ordinal))
+            bool migrateEnabled = _opts.Migrate.Value;
+            if (!migrateEnabled)
                 return false;
             try { return MigrateLinearToPaged(owner, blockSize); }
             catch (Exception)
@@ -258,12 +259,6 @@ namespace TensorSharp.Models
         /// MLX for those models is even slower than the batched path,
         /// so the global default stays ON until the per-seq MLX path
         /// is benchmarked and fixed for hybrid Qwen3-Next.</summary>
-        private static bool IsBatchedPathEnabled()
-        {
-            string raw = Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED");
-            if (string.IsNullOrEmpty(raw)) return true;
-            return raw != "0" && !string.Equals(raw, "false", StringComparison.OrdinalIgnoreCase);
-        }
 
         public IReadOnlyList<float[]> ForwardBatch(BatchedForwardContext ctx)
         {
@@ -272,7 +267,7 @@ namespace TensorSharp.Models
             if (numSeqs == 0) return Array.Empty<float[]>();
 
 
-            if (!IsBatchedPathEnabled())
+            if (!_opts.Batched.Value)
             {
                 throw new NotSupportedException(
                     "Qwen 3.5 batched path is disabled (TS_QWEN35_BATCHED=0 / --no-continuous-batching). "
@@ -427,7 +422,7 @@ namespace TensorSharp.Models
             // or any unsupported shape; the op-by-op loop then runs.
             bool allDecodeBatch = ctx.OverrideFlatTokens == null
                 && ctx.CaptureHiddenAll == null && ctx.CaptureLogitsAll == null
-                && !anyMultimodal && IsBatchedFusedEnabled() && _backend == BackendType.GgmlCuda;
+                && !anyMultimodal && _opts.BatchedFused.Value && _backend == BackendType.GgmlCuda;
             if (allDecodeBatch)
                 for (int s = 0; s < numSeqs; s++)
                     if (ctx.NumScheduledTokens[s] != 1) { allDecodeBatch = false; break; }
@@ -582,9 +577,7 @@ namespace TensorSharp.Models
                         // on Qwen3.5's 16 attention layers) the
                         // CPU-side scalar attention is actually faster.
                         // Toggle via TS_QWEN35_MLX_TENSOR_PAGED_ATTN=1.
-                        bool useTensorPath = string.Equals(
-                            Environment.GetEnvironmentVariable("TS_QWEN35_MLX_TENSOR_PAGED_ATTN"),
-                            "1", StringComparison.Ordinal);
+                        bool useTensorPath = _opts.MlxTensorPagedAttn.Value;
                         if (useTensorPath)
                         {
                             TensorPagedAttention.Forward(
@@ -919,15 +912,12 @@ namespace TensorSharp.Models
         // A `static readonly` here would capture TS_QWEN35_BATCHED_GDN_NATIVE
         // at class-init time, which is before tests get a chance to set it —
         // the same gotcha that bit Nemotron's Phase 9 verification.
-        private static bool UseNativeBatchedGdn() =>
-            string.Equals(Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED_GDN_NATIVE"),
-                          "1", StringComparison.Ordinal);
 
         private Tensor RunBatchedGdnLayer(
             Tensor hiddenStates, BatchedForwardContext ctx, int layer,
             int numTokens, int numSeqs, int[] queryStartLoc)
         {
-            return UseNativeBatchedGdn()
+            return _opts.BatchedGdnNative.Value
                 ? RunBatchedGdnLayerNative(hiddenStates, ctx, layer, numTokens, numSeqs, queryStartLoc)
                 : RunBatchedGdnLayerPerSeq(hiddenStates, ctx, layer, numTokens, numSeqs, queryStartLoc);
         }

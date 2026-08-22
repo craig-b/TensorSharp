@@ -72,7 +72,9 @@ namespace TensorSharp.Runtime
         // Keys with a meaning of their own rather than a flag to emit.
         private static readonly HashSet<string> ReservedKeys = new(StringComparer.OrdinalIgnoreCase)
         {
-            "variables", "vars", "$schema",
+            // "presets" holds per-model tuning-knob blocks read at model-load
+            // time by the server's knob configuration, not startup argv.
+            "variables", "vars", "$schema", "presets",
         };
 
         private static readonly JsonDocumentOptions ParseOptions = new JsonDocumentOptions

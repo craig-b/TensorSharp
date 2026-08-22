@@ -35,6 +35,8 @@ namespace TensorSharp.Models
             string glm = Environment.GetEnvironmentVariable("TS_GLM_MTP");
             if (!string.IsNullOrEmpty(glm))
                 return glm != "0";
+            if (TensorSharp.Runtime.Scheduling.SchedulerOverrides.Current?.MtpSpeculative is bool hosted)
+                return hosted;
             string spec = Environment.GetEnvironmentVariable("TS_MTP_SPEC");
             return !string.IsNullOrEmpty(spec) && spec != "0";
         }

@@ -13,7 +13,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using TensorSharp.Models;
 using TensorSharp.Runtime;
+using TensorSharp.Runtime.Scheduling;
 
 namespace TensorSharp.Server.Hosting
 {
@@ -317,62 +319,166 @@ namespace TensorSharp.Server.Hosting
         }
 
         /// <summary>
-        /// Translate <c>--continuous-batching</c> / <c>--no-continuous-batching</c>
-        /// into the two env vars that gate the batched path:
-        /// <c>TS_SCHED_DISABLE_BATCHED</c> (scheduler — falls through to
-        /// per-sequence KV-swap when set) and <c>TS_QWEN35_BATCHED</c>
-        /// (model — Qwen3.5 ForwardBatch gate; default ON, set to 0 to force
-        /// the per-seq fallback). Both default to ON, so operators get
-        /// paged-attention continuous batching without setting any env vars
-        /// and without passing any flag; <c>--continuous-batching</c> is
-        /// idempotent with the default, kept for explicit operator intent.
-        /// <c>--no-continuous-batching</c> forces the per-seq path for every
-        /// model.
-        ///
-        /// Must run before <see cref="InferenceEngine"/> is constructed because
-        /// <c>BatchExecutor</c> and Qwen3.5's <c>SupportsBatchedMultimodal</c>
-        /// read the env vars at runtime on each step.
+        /// Typed scheduler / speculative-decoding overrides captured from the
+        /// CLI, installed as <see cref="SchedulerOverrides.Current"/> at
+        /// startup instead of travelling through <c>TS_SCHED_*</c> /
+        /// <c>TS_MTP_*</c> env writes. Null when no covered flag is present
+        /// (env-only behaviour). Covered flags:
+        /// <c>--continuous-batching</c> / <c>--no-continuous-batching</c> (and
+        /// the <c>--paged-batching</c> aliases) gate the batched path
+        /// (default ON; the model-side Qwen3.5 gate is carried by
+        /// <see cref="BuildModelOptions"/>); <c>--prefill-chunk-size</c> tunes
+        /// chunked-prefill granularity (smaller chunks give parallel decode
+        /// requests more frequent turns at the GPU; default 1024);
+        /// <c>--mtp-spec</c> / <c>--no-mtp-spec</c>, <c>--mtp-draft N</c>,
+        /// <c>--mtp-pmin X</c> configure NextN/MTP speculative decoding;
+        /// <c>--mtp-draft-model</c> names a separate draft GGUF (Gemma 4);
+        /// <c>--draft-model</c> names a DSpark block drafter (DeepSeek V4).
         /// </summary>
-        public static bool ApplyContinuousBatchingCliFlag(string[] args)
+        public static SchedulerOverrides BuildSchedulerOverrides(string[] args)
         {
             if (args == null || args.Length == 0)
-                return false;
+                return null;
 
-            bool changed = false;
+            bool? disableBatched = null;
+            int? prefillChunk = null;
+            bool? mtpSpec = null;
+            int? mtpDraft = null;
+            float? mtpPmin = null;
+            string mtpDraftModel = null;
+            string dspark = null;
+
             for (int i = 0; i < args.Length; i++)
             {
                 string a = args[i];
                 if (string.Equals(a, "--continuous-batching", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(a, "--paged-batching", StringComparison.OrdinalIgnoreCase))
                 {
-                    Environment.SetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED", "0");
-                    Environment.SetEnvironmentVariable("TS_QWEN35_BATCHED", "1");
-                    changed = true;
+                    disableBatched = false;
                     continue;
                 }
                 if (string.Equals(a, "--no-continuous-batching", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(a, "--no-paged-batching", StringComparison.OrdinalIgnoreCase))
                 {
-                    Environment.SetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED", "1");
-                    Environment.SetEnvironmentVariable("TS_QWEN35_BATCHED", "0");
-                    changed = true;
+                    disableBatched = true;
                     continue;
                 }
-                // Tune chunked-prefill granularity. Each prefill chunk runs
-                // as a single ExecuteStep that holds ModelBase.GpuComputeLock
-                // for the duration of its forward pass, so smaller chunks
-                // give parallel decode requests more frequent turns at the
-                // GPU. Default 1024 (see SchedulerConfig.MaxPrefillChunkSize).
                 if (TryReadOption(args, ref i, "--prefill-chunk-size", out string chunkOpt))
                 {
                     if (!int.TryParse(chunkOpt, out int chunk) || chunk <= 0)
                         throw new ArgumentException($"Invalid value for --prefill-chunk-size: '{chunkOpt}'.");
-                    Environment.SetEnvironmentVariable("TS_SCHED_PREFILL_CHUNK", chunk.ToString());
-                    changed = true;
+                    prefillChunk = chunk;
+                    continue;
+                }
+                if (string.Equals(a, "--mtp-spec", StringComparison.OrdinalIgnoreCase))
+                {
+                    mtpSpec = true;
+                    continue;
+                }
+                if (string.Equals(a, "--no-mtp-spec", StringComparison.OrdinalIgnoreCase))
+                {
+                    mtpSpec = false;
+                    continue;
+                }
+                if (TryReadOption(args, ref i, "--mtp-draft", out string draftOpt))
+                {
+                    if (!int.TryParse(draftOpt, NumberStyles.Integer, CultureInfo.InvariantCulture, out int draft) || draft <= 0)
+                        throw new ArgumentException($"Invalid value for --mtp-draft: '{draftOpt}'. Expected a positive integer.");
+                    mtpDraft = draft;
+                    continue;
+                }
+                if (TryReadOption(args, ref i, "--mtp-pmin", out string pminOpt))
+                {
+                    if (!float.TryParse(pminOpt, NumberStyles.Float, CultureInfo.InvariantCulture, out float pmin)
+                        || pmin <= 0f || pmin > 1f)
+                    {
+                        throw new ArgumentException($"Invalid value for --mtp-pmin: '{pminOpt}'. Expected a probability in (0, 1].");
+                    }
+                    mtpPmin = pmin;
+                    continue;
+                }
+                // Path to a SEPARATE draft GGUF for models whose MTP draft head
+                // ships as its own file (Gemma 4's "gemma4-assistant"). Qwen3.6
+                // embeds the NextN block in the trunk GGUF and needs no such flag.
+                if (TryReadOption(args, ref i, "--mtp-draft-model", out string draftModelOpt))
+                {
+                    if (string.IsNullOrWhiteSpace(draftModelOpt) || !File.Exists(draftModelOpt))
+                        throw new ArgumentException($"--mtp-draft-model file not found: '{draftModelOpt}'.");
+                    mtpDraftModel = draftModelOpt;
+                    continue;
+                }
+                // Path to a BLOCK drafter GGUF that has to be resident before
+                // the model's layer split runs (DeepSeek V4's DSpark).
+                if (TryReadOption(args, ref i, "--draft-model", out string dsparkOpt))
+                {
+                    if (string.IsNullOrWhiteSpace(dsparkOpt) || !File.Exists(dsparkOpt))
+                        throw new ArgumentException($"--draft-model file not found: '{dsparkOpt}'.");
+                    dspark = dsparkOpt;
                     continue;
                 }
             }
-            return changed;
+
+            if (disableBatched == null && prefillChunk == null && mtpSpec == null
+                && mtpDraft == null && mtpPmin == null && mtpDraftModel == null && dspark == null)
+            {
+                return null;
+            }
+
+            return new SchedulerOverrides
+            {
+                DisableBatched = disableBatched,
+                PrefillChunkSize = prefillChunk,
+                MtpSpeculative = mtpSpec,
+                MtpMaxDraftTokens = mtpDraft,
+                MtpMinDraftProb = mtpPmin,
+                MtpDraftModelPath = mtpDraftModel,
+                Dsv4DsparkPath = dspark,
+            };
+        }
+
+        /// <summary>
+        /// Typed model-layer overrides handed to <c>ModelBase.Create</c> on
+        /// every model load instead of travelling through process env vars.
+        /// Layered via the configuration tree: <see cref="KnobRegistry"/> env
+        /// vars below, CLI flags above (CLI wins). Knobs neither flagged nor
+        /// unambiguously readable from env stay null, which is byte-identical
+        /// to the existing behaviour: the knob's own env read decides at the
+        /// site (see <see cref="ModelOptions"/>).
+        /// </summary>
+        public static ModelOptions BuildModelOptions(string[] args)
+        {
+            return ModelKnobConfig.Bind(ModelKnobConfig.BuildConfiguration(args));
+        }
+
+        /// <summary>
+        /// Per-model options resolver used at every model load. Layers, lowest
+        /// to highest: env vars, the loading model's <c>"presets"</c> block
+        /// from the <c>--config</c> file(s) (keyed by GGUF file name), CLI
+        /// flags / <c>--set</c>. <paramref name="expandedArgs"/> is the argv
+        /// AFTER <see cref="ConfigFileArgs.Expand"/>;
+        /// <paramref name="configPaths"/> comes from
+        /// <see cref="ReadConfigPaths"/> on the RAW argv (Expand strips the
+        /// flag).
+        /// </summary>
+        public static Func<string, ModelOptions> CreateModelOptionsResolver(string[] expandedArgs, IReadOnlyList<string> configPaths)
+        {
+            return modelPath => ModelKnobConfig.Bind(ModelKnobConfig.BuildConfiguration(
+                expandedArgs, configPaths, modelPath == null ? null : Path.GetFileName(modelPath)));
+        }
+
+        /// <summary>The <c>--config</c> paths as they appeared on the raw
+        /// command line, in order.</summary>
+        public static IReadOnlyList<string> ReadConfigPaths(string[] rawArgs)
+        {
+            var paths = new List<string>();
+            if (rawArgs == null)
+                return paths;
+            for (int i = 0; i < rawArgs.Length; i++)
+            {
+                if (TryReadOption(rawArgs, ref i, ConfigFileArgs.ConfigFlag, out string path))
+                    paths.Add(path);
+            }
+            return paths;
         }
 
         /// <summary>
@@ -561,82 +667,6 @@ namespace TensorSharp.Server.Hosting
             return changed;
         }
 
-        /// <summary>
-        /// Translate <c>--mtp-spec</c> / <c>--no-mtp-spec</c> /
-        /// <c>--mtp-draft N</c> / <c>--mtp-pmin X</c> into the <c>TS_MTP_*</c>
-        /// env vars read by <c>SchedulerConfig.FromEnvironment</c> when the
-        /// inference engine is constructed. NextN/MTP speculative decoding only
-        /// engages on models that ship a draft head (Qwen3.6) and is off by
-        /// default. Returns true when at least one flag was applied so the
-        /// caller can emit a startup-log line.
-        /// </summary>
-        public static bool ApplyMtpSpeculativeCliFlags(string[] args)
-        {
-            if (args == null || args.Length == 0)
-                return false;
-
-            bool changed = false;
-            for (int i = 0; i < args.Length; i++)
-            {
-                string a = args[i];
-                if (string.Equals(a, "--mtp-spec", StringComparison.OrdinalIgnoreCase))
-                {
-                    Environment.SetEnvironmentVariable("TS_MTP_SPEC", "1");
-                    changed = true;
-                    continue;
-                }
-                if (string.Equals(a, "--no-mtp-spec", StringComparison.OrdinalIgnoreCase))
-                {
-                    Environment.SetEnvironmentVariable("TS_MTP_SPEC", "0");
-                    changed = true;
-                    continue;
-                }
-                if (TryReadOption(args, ref i, "--mtp-draft", out string draftOpt))
-                {
-                    if (!int.TryParse(draftOpt, NumberStyles.Integer, CultureInfo.InvariantCulture, out int draft) || draft <= 0)
-                        throw new ArgumentException($"Invalid value for --mtp-draft: '{draftOpt}'. Expected a positive integer.");
-                    Environment.SetEnvironmentVariable("TS_MTP_DRAFT", draft.ToString(CultureInfo.InvariantCulture));
-                    changed = true;
-                    continue;
-                }
-                if (TryReadOption(args, ref i, "--mtp-pmin", out string pminOpt))
-                {
-                    if (!float.TryParse(pminOpt, NumberStyles.Float, CultureInfo.InvariantCulture, out float pmin)
-                        || pmin <= 0f || pmin > 1f)
-                    {
-                        throw new ArgumentException($"Invalid value for --mtp-pmin: '{pminOpt}'. Expected a probability in (0, 1].");
-                    }
-                    Environment.SetEnvironmentVariable("TS_MTP_PMIN", pmin.ToString(CultureInfo.InvariantCulture));
-                    changed = true;
-                    continue;
-                }
-                // Path to a SEPARATE draft GGUF for models whose MTP draft head
-                // ships as its own file (Gemma 4's "gemma4-assistant"). Qwen3.6
-                // embeds the NextN block in the trunk GGUF and needs no such flag.
-                if (TryReadOption(args, ref i, "--mtp-draft-model", out string draftModelOpt))
-                {
-                    if (string.IsNullOrWhiteSpace(draftModelOpt) || !File.Exists(draftModelOpt))
-                        throw new ArgumentException($"--mtp-draft-model file not found: '{draftModelOpt}'.");
-                    Environment.SetEnvironmentVariable("TS_MTP_DRAFT_MODEL", draftModelOpt);
-                    changed = true;
-                    continue;
-                }
-                // Path to a BLOCK drafter GGUF that has to be resident before
-                // the model's layer split runs (DeepSeek V4's DSpark). Unlike
-                // --mtp-draft-model this one is handed to the model factory, so
-                // it is carried as the same env var the CLI's --draft-model
-                // reads and picked up again by a runtime model switch.
-                if (TryReadOption(args, ref i, "--draft-model", out string dsparkOpt))
-                {
-                    if (string.IsNullOrWhiteSpace(dsparkOpt) || !File.Exists(dsparkOpt))
-                        throw new ArgumentException($"--draft-model file not found: '{dsparkOpt}'.");
-                    Environment.SetEnvironmentVariable("TS_DSV4_DSPARK", dsparkOpt);
-                    changed = true;
-                    continue;
-                }
-            }
-            return changed;
-        }
 
         /// <summary>
         /// Translate <c>--paged-kv*</c> CLI flags into the env vars consumed by
@@ -1212,7 +1242,7 @@ namespace TensorSharp.Server.Hosting
                     continue;
                 }
                 // MTP speculative-decoding flags are consumed by
-                // ApplyMtpSpeculativeCliFlags(args) in a separate earlier pass.
+                // BuildSchedulerOverrides(args) in a separate earlier pass.
                 // Recognise + skip them here so they don't trip the
                 // unknown-arg trap below.
                 if (string.Equals(args[i], "--mtp-spec", StringComparison.OrdinalIgnoreCase) ||
@@ -1224,6 +1254,11 @@ namespace TensorSharp.Server.Hosting
                     || TryReadOption(args, ref i, "--mtp-pmin", out _)
                     || TryReadOption(args, ref i, "--mtp-draft-model", out _)
                     || TryReadOption(args, ref i, "--draft-model", out _))
+                {
+                    continue;
+                }
+                // --set NAME=VALUE is consumed by ModelKnobConfig's CLI pass.
+                if (TryReadOption(args, ref i, "--set", out _))
                 {
                     continue;
                 }
@@ -1291,7 +1326,7 @@ namespace TensorSharp.Server.Hosting
                 "--kv-cache-dtype", "--gpu-device", "--list-gpus", "--help",
                 "--tp", "--tp-node-id", "--tp-peers",
                 "--upload-max-mb", "--upload-quota-mb", "--upload-ttl-hours",
-                "--config",
+                "--config", "--set",
             };
             string best = null;
             int bestDist = int.MaxValue;

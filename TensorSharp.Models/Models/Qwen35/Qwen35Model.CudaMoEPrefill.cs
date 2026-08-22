@@ -11,13 +11,11 @@ namespace TensorSharp.Models
         // counterpart of ggml_mul_mat_id: each active expert sees one row batch,
         // so its quantized weights are streamed once for all assigned tokens.
         // Set to 0 only for A/B diagnostics.
-        private static readonly bool s_qwenCudaMoeGroupedPrefill =
-            Environment.GetEnvironmentVariable("TS_CUDA_MOE_PREFILL_GROUPED") != "0";
 
         private unsafe Tensor TryCudaMoEForwardPrefillGrouped(
             Tensor input, float* routerData, bool routeRowsAreLogits, int layer, int seqLen)
         {
-            if (!s_qwenCudaMoeGroupedPrefill
+            if (!Options.CudaMoePrefillGrouped.Value
                 || _backend != BackendType.Cuda
                 || seqLen <= 1
                 || input?.Storage is not CudaStorage
