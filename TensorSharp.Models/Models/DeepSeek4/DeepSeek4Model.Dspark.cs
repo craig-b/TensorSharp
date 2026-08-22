@@ -32,7 +32,8 @@ namespace TensorSharp.Models
         {
             string path = !string.IsNullOrWhiteSpace(explicitPath)
                 ? explicitPath
-                : Environment.GetEnvironmentVariable("TS_DSV4_DSPARK");
+                : SchedulerOverrides.Current?.Dsv4DsparkPath
+                    ?? Environment.GetEnvironmentVariable("TS_DSV4_DSPARK");
             return string.IsNullOrWhiteSpace(path) ? null : path;
         }
 

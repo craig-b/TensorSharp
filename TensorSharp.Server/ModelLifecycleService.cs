@@ -234,7 +234,8 @@ namespace TensorSharp.Server
                 // and --mtp-spec engages. (Qwen3.6 embeds its NextN block in the
                 // trunk and needs no separate file.) MtpDraftActivationError was
                 // cleared when the previous model was unloaded.
-                string mtpDraftPath = Environment.GetEnvironmentVariable("TS_MTP_DRAFT_MODEL");
+                string mtpDraftPath = TensorSharp.Runtime.Scheduling.SchedulerOverrides.Current?.MtpDraftModelPath
+                    ?? Environment.GetEnvironmentVariable("TS_MTP_DRAFT_MODEL");
                 if (!string.IsNullOrEmpty(mtpDraftPath))
                 {
                     if (_model is Gemma4Model g4)

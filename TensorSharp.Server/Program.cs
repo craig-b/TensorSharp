@@ -75,17 +75,16 @@ bool pagedKvFlagsApplied = ServerOptionsBuilder.ApplyPagedKvCacheCliFlags(args);
 // TS_RESPONSES_STORE_REDIS_URL so a single flag enables Redis for both the
 // paged KV cache tier and the Responses API store.
 bool redisFlagsApplied = ServerOptionsBuilder.ApplyRedisCliFlags(args);
-// Translate --continuous-batching / --no-continuous-batching into the env var
-// that gates BatchExecutor (TS_SCHED_DISABLE_BATCHED). Must run before
-// InferenceEngine constructs its BatchExecutor. The model-side gate travels
-// as typed options (modelOptions below), not an env write.
-bool continuousBatchingFlagApplied = ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(args);
 // Typed model-layer overrides, passed to ModelBase.Create on every load.
 // All-null when no covered flag is present, which keeps env-var behaviour.
 TensorSharp.Models.ModelOptions modelOptions = ServerOptionsBuilder.BuildModelOptions(args);
-// Translate --mtp-spec / --mtp-draft / --mtp-pmin into the TS_MTP_* env vars
-// read by SchedulerConfig.FromEnvironment when the engine is constructed.
-bool mtpSpecFlagsApplied = ServerOptionsBuilder.ApplyMtpSpeculativeCliFlags(args);
+// Typed scheduler / MTP overrides (--continuous-batching, --prefill-chunk-size,
+// --mtp-*, --draft-model), installed as the ambient SchedulerOverrides.Current
+// instead of TS_SCHED_* / TS_MTP_* env writes. Must run before InferenceEngine
+// constructs its BatchExecutor; null keeps env-only behaviour.
+var schedulerOverrides = ServerOptionsBuilder.BuildSchedulerOverrides(args);
+if (schedulerOverrides != null)
+    TensorSharp.Runtime.Scheduling.SchedulerOverrides.Current = schedulerOverrides;
 // Translate --qwen-image-vae / --qwen-image-vl / --qwen-image-mmproj into the
 // TS_QWEN_IMAGE_* env vars QwenImageModel reads to locate the VAE, Qwen2.5-VL
 // text-encoder, and mmproj GGUFs. Must run before the startup model is loaded.
@@ -205,10 +204,11 @@ if (redisFlagsApplied)
         Environment.GetEnvironmentVariable("TS_RESPONSES_STORE_REDIS_URL") ?? "(disabled)");
 }
 
-if (mtpSpecFlagsApplied)
+if (schedulerOverrides?.HasMtpOverrides == true)
 {
     var schedCfg = TensorSharp.Runtime.Scheduling.SchedulerConfig.FromEnvironment();
-    string blockDraft = Environment.GetEnvironmentVariable("TS_DSV4_DSPARK");
+    string blockDraft = schedulerOverrides.Dsv4DsparkPath
+        ?? Environment.GetEnvironmentVariable("TS_DSV4_DSPARK");
     startupLogger.LogInformation(LogEventIds.HostConfiguration,
         "MTP speculative decoding configured via CLI: enabled={Enabled} maxDraft={MaxDraft} pMin={PMin} draftModel={DraftModel} " +
         "(engages for solo sequences on models that ship a draft head)",

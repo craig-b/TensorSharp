@@ -241,47 +241,87 @@ public class ServerOptionsBuilderTests : IDisposable
     }
 
     [Fact]
-    public void ApplyContinuousBatchingCliFlag_OnFlag_SetsSchedulerEnvOnly()
+    public void BuildSchedulerOverrides_BatchingFlags_MapWithoutEnvWrites()
     {
         _env.Set("TS_SCHED_DISABLE_BATCHED", null);
         _env.Set("TS_QWEN35_BATCHED", null);
-        bool applied = ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(new[] { "--continuous-batching" });
-        Assert.True(applied);
-        Assert.Equal("0", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
-        // The model-side gate travels as typed options now, never an env write.
+        Assert.False(ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--continuous-batching" }).DisableBatched);
+        Assert.True(ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--no-continuous-batching" }).DisableBatched);
+        Assert.False(ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--paged-batching" }).DisableBatched);
+        Assert.True(ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--no-paged-batching" }).DisableBatched);
+        // Nothing travels through the process environment any more.
+        Assert.Null(Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
         Assert.Null(Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
     }
 
     [Fact]
-    public void ApplyContinuousBatchingCliFlag_OffFlag_SetsSchedulerEnvOnly()
+    public void BuildSchedulerOverrides_NoCoveredFlag_ReturnsNull()
     {
-        _env.Set("TS_SCHED_DISABLE_BATCHED", null);
-        _env.Set("TS_QWEN35_BATCHED", null);
-        bool applied = ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(new[] { "--no-continuous-batching" });
-        Assert.True(applied);
-        Assert.Equal("1", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
-        Assert.Null(Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
+        Assert.Null(ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--unrelated", "value" }));
+        Assert.Null(ServerOptionsBuilder.BuildSchedulerOverrides(Array.Empty<string>()));
+        Assert.Null(ServerOptionsBuilder.BuildSchedulerOverrides(null));
     }
 
     [Fact]
-    public void ApplyContinuousBatchingCliFlag_PagedBatchingAlias_BehavesSameAsCanonical()
+    public void BuildSchedulerOverrides_MtpFlags_MapAndValidate()
     {
-        _env.Set("TS_SCHED_DISABLE_BATCHED", null);
-        Assert.True(ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(new[] { "--paged-batching" }));
-        Assert.Equal("0", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
-        Assert.True(ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(new[] { "--no-paged-batching" }));
-        Assert.Equal("1", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
+        var ov = ServerOptionsBuilder.BuildSchedulerOverrides(new[]
+        {
+            "--mtp-spec", "--mtp-draft", "6", "--mtp-pmin", "0.5", "--prefill-chunk-size", "512",
+        });
+        Assert.True(ov.MtpSpeculative);
+        Assert.Equal(6, ov.MtpMaxDraftTokens);
+        Assert.Equal(0.5f, ov.MtpMinDraftProb);
+        Assert.Equal(512, ov.PrefillChunkSize);
+        Assert.True(ov.HasMtpOverrides);
+
+        Assert.False(ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--no-mtp-spec" }).MtpSpeculative);
+        Assert.Throws<ArgumentException>(() =>
+            ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--mtp-draft", "0" }));
+        Assert.Throws<ArgumentException>(() =>
+            ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--mtp-pmin", "1.5" }));
+        Assert.Throws<ArgumentException>(() =>
+            ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--prefill-chunk-size", "abc" }));
+        Assert.Throws<ArgumentException>(() =>
+            ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--mtp-draft-model", "/nonexistent.gguf" }));
+        Assert.Throws<ArgumentException>(() =>
+            ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--draft-model", "/nonexistent.gguf" }));
     }
 
     [Fact]
-    public void ApplyContinuousBatchingCliFlag_NoFlag_LeavesEnvUnchanged()
+    public void SchedulerOverrides_FeedSchedulerConfigAndExecutionOptions()
     {
-        _env.Set("TS_SCHED_DISABLE_BATCHED", "0");
-        _env.Set("TS_QWEN35_BATCHED", "1");
-        bool applied = ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(new[] { "--unrelated", "value" });
-        Assert.False(applied);
-        Assert.Equal("0", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
-        Assert.Equal("1", Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
+        _env.Set("TS_SCHED_DISABLE_BATCHED", null);
+        _env.Set("TS_SCHED_PREFILL_CHUNK", null);
+        _env.Set("TS_MTP_SPEC", null);
+        var saved = SchedulerOverrides.Current;
+        try
+        {
+            SchedulerOverrides.Current = new SchedulerOverrides
+            {
+                DisableBatched = true,
+                PrefillChunkSize = 333,
+                MtpSpeculative = true,
+                MtpMaxDraftTokens = 5,
+            };
+            var cfg = SchedulerConfig.FromEnvironment();
+            Assert.Equal(333, cfg.MaxPrefillChunkSize);
+            Assert.True(cfg.MtpSpeculativeEnabled);
+            Assert.Equal(5, cfg.MtpMaxDraftTokens);
+            Assert.True(ExecutionOptions.FromEnvironment().BatchedPathDisabled);
+
+            // Env vars still win nothing over set overrides, but drive the
+            // fields the overrides leave null.
+            _env.Set("TS_SCHED_PREFILL_CHUNK", "777");
+            SchedulerOverrides.Current = new SchedulerOverrides { MtpSpeculative = false };
+            var cfg2 = SchedulerConfig.FromEnvironment();
+            Assert.Equal(777, cfg2.MaxPrefillChunkSize);
+            Assert.False(cfg2.MtpSpeculativeEnabled);
+        }
+        finally
+        {
+            SchedulerOverrides.Current = saved;
+        }
     }
 
     [Fact]
@@ -314,7 +354,7 @@ public class ServerOptionsBuilderTests : IDisposable
     }
 
     [Fact]
-    public void ApplyContinuousBatchingCliFlag_OnFlag_ServerBuildDoesNotTripUnknownArgTrap()
+    public void ContinuousBatchingFlag_ServerBuildDoesNotTripUnknownArgTrap()
     {
         // ParseArgs throws on unknown flags; this regression-tests that the
         // continuous-batching flag is recognised in the skip list inside
@@ -775,85 +815,65 @@ public class ServerOptionsBuilderTests : IDisposable
     // ----- MTP speculative-decoding CLI flags -----
 
     [Fact]
-    public void ApplyMtpSpeculativeCliFlags_SpecFlag_EnablesSchedulerSpeculation()
+    public void BuildSchedulerOverrides_SpecFlags_FeedSchedulerConfig()
     {
         _env.Set("TS_MTP_SPEC", null);
-        bool applied = ServerOptionsBuilder.ApplyMtpSpeculativeCliFlags(new[] { "--mtp-spec" });
-        Assert.True(applied);
-        Assert.Equal("1", Environment.GetEnvironmentVariable("TS_MTP_SPEC"));
-        Assert.True(SchedulerConfig.FromEnvironment().MtpSpeculativeEnabled);
+        var saved = SchedulerOverrides.Current;
+        try
+        {
+            SchedulerOverrides.Current = ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--mtp-spec" });
+            Assert.True(SchedulerConfig.FromEnvironment().MtpSpeculativeEnabled);
+            // No env write happens any more.
+            Assert.Null(Environment.GetEnvironmentVariable("TS_MTP_SPEC"));
+
+            _env.Set("TS_MTP_SPEC", "1");
+            SchedulerOverrides.Current = ServerOptionsBuilder.BuildSchedulerOverrides(new[] { "--no-mtp-spec" });
+            // CLI override beats the env var.
+            Assert.False(SchedulerConfig.FromEnvironment().MtpSpeculativeEnabled);
+        }
+        finally
+        {
+            SchedulerOverrides.Current = saved;
+        }
     }
 
     [Fact]
-    public void ApplyMtpSpeculativeCliFlags_NoSpecFlag_DisablesSpeculation()
-    {
-        _env.Set("TS_MTP_SPEC", "1");
-        bool applied = ServerOptionsBuilder.ApplyMtpSpeculativeCliFlags(new[] { "--no-mtp-spec" });
-        Assert.True(applied);
-        Assert.Equal("0", Environment.GetEnvironmentVariable("TS_MTP_SPEC"));
-        Assert.False(SchedulerConfig.FromEnvironment().MtpSpeculativeEnabled);
-    }
-
-    [Fact]
-    public void ApplyMtpSpeculativeCliFlags_DraftModel_DoesNotCollideWithDraftCount()
+    public void BuildSchedulerOverrides_DraftModel_DoesNotCollideWithDraftCount()
     {
         // --mtp-draft is a prefix of --mtp-draft-model; the parser must route each
-        // to its own env var rather than mis-reading the longer flag as the shorter.
-        _env.Set("TS_MTP_DRAFT", null);
-        _env.Set("TS_MTP_DRAFT_MODEL", null);
+        // to its own field rather than mis-reading the longer flag as the shorter.
         string draftFile = Path.Combine(_baseDir, "draft.gguf");
         File.WriteAllText(draftFile, "stub");   // the parser validates File.Exists
 
-        bool applied = ServerOptionsBuilder.ApplyMtpSpeculativeCliFlags(new[]
+        var ov = ServerOptionsBuilder.BuildSchedulerOverrides(new[]
         {
             "--mtp-draft", "5",
             "--mtp-draft-model", draftFile,
         });
 
-        Assert.True(applied);
-        Assert.Equal("5", Environment.GetEnvironmentVariable("TS_MTP_DRAFT"));
-        Assert.Equal(draftFile, Environment.GetEnvironmentVariable("TS_MTP_DRAFT_MODEL"));
-        Assert.Equal(5, SchedulerConfig.FromEnvironment().MtpMaxDraftTokens);
+        Assert.Equal(5, ov.MtpMaxDraftTokens);
+        Assert.Equal(draftFile, ov.MtpDraftModelPath);
+        Assert.Null(ov.Dsv4DsparkPath);
     }
 
     [Fact]
-    public void ApplyMtpSpeculativeCliFlags_MissingDraftModelFile_ThrowsArgumentException()
-    {
-        var ex = Assert.Throws<ArgumentException>(() =>
-            ServerOptionsBuilder.ApplyMtpSpeculativeCliFlags(
-                new[] { "--mtp-draft-model", Path.Combine(_baseDir, "does-not-exist.gguf") }));
-        Assert.Contains("--mtp-draft-model", ex.Message);
-    }
-
-    [Fact]
-    public void ApplyMtpSpeculativeCliFlags_BlockDraftModel_IsRoutedToItsOwnEnvVar()
+    public void BuildSchedulerOverrides_BlockDraftModel_IsRoutedToItsOwnField()
     {
         // --draft-model (a block drafter handed to the model factory) and
         // --mtp-draft-model (a draft head attached after load) are different
         // mechanisms; each must reach its own consumer.
-        _env.Set("TS_DSV4_DSPARK", null);
-        _env.Set("TS_MTP_DRAFT_MODEL", null);
         string blockDraft = Path.Combine(_baseDir, "dspark.gguf");
         File.WriteAllText(blockDraft, "stub");
 
-        bool applied = ServerOptionsBuilder.ApplyMtpSpeculativeCliFlags(new[]
+        var ov = ServerOptionsBuilder.BuildSchedulerOverrides(new[]
         {
             "--mtp-spec",
             "--draft-model", blockDraft,
         });
 
-        Assert.True(applied);
-        Assert.Equal(blockDraft, Environment.GetEnvironmentVariable("TS_DSV4_DSPARK"));
-        Assert.Null(Environment.GetEnvironmentVariable("TS_MTP_DRAFT_MODEL"));
-    }
-
-    [Fact]
-    public void ApplyMtpSpeculativeCliFlags_MissingBlockDraftFile_ThrowsArgumentException()
-    {
-        var ex = Assert.Throws<ArgumentException>(() =>
-            ServerOptionsBuilder.ApplyMtpSpeculativeCliFlags(
-                new[] { "--draft-model", Path.Combine(_baseDir, "does-not-exist.gguf") }));
-        Assert.Contains("--draft-model", ex.Message);
+        Assert.Equal(blockDraft, ov.Dsv4DsparkPath);
+        Assert.Null(ov.MtpDraftModelPath);
+        Assert.True(ov.HasMtpOverrides);
     }
 
     [Fact]
