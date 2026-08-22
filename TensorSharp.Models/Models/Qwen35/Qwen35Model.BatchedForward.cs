@@ -145,8 +145,11 @@ namespace TensorSharp.Models
             if (!migrateEnabled)
                 return false;
             try { return MigrateLinearToPaged(owner, blockSize); }
-            catch (Exception)
+            catch (Exception ex)
             {
+                PathDiag.DeclineOnce("qwen35 kv-migration",
+                    $"linear-to-paged migration threw {ex.GetType().Name}: {ex.Message}",
+                    "serialized per-sequence rotation");
                 return false;
             }
         }
