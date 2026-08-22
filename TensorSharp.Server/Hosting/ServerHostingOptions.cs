@@ -50,9 +50,13 @@ namespace TensorSharp.Server.Hosting
             long uploadMaxFileBytes = UploadStoragePolicy.DefaultMaxFileBytes,
             long uploadQuotaBytes = 0,
             TimeSpan? uploadTtl = null,
-            bool webUiEnabled = true)
+            bool webUiEnabled = true,
+            string apiKey = null,
+            ApiKeyScope apiKeyScope = ApiKeyScope.All)
         {
             WebUiEnabled = webUiEnabled;
+            ApiKey = string.IsNullOrEmpty(apiKey) ? null : apiKey;
+            ApiKeyScope = apiKeyScope;
             ListenUrls = string.IsNullOrWhiteSpace(listenUrls) ? DefaultListenUrls : listenUrls;
             StartupModelPath = startupModelPath;
             StartupMmProjPath = startupMmProjPath;
@@ -135,6 +139,20 @@ namespace TensorSharp.Server.Hosting
         /// default (16, or 24 for Wan2.2-TI2V).
         /// </summary>
         public int DefaultWanVideoFps { get; }
+
+        /// <summary>
+        /// API key required on requests, resolved from <c>--api-key</c> /
+        /// <c>--api-key-file</c> / <c>TS_API_KEY</c>. Null when none is
+        /// configured — the default, in which case every route stays anonymous
+        /// and no auth middleware is added.
+        /// </summary>
+        public string ApiKey { get; }
+
+        /// <summary>
+        /// Which clients <see cref="ApiKey"/> applies to. Meaningless while
+        /// <see cref="ApiKey"/> is null.
+        /// </summary>
+        public ApiKeyScope ApiKeyScope { get; }
 
         /// <summary>Absolute path to the directory used for user uploads.</summary>
         public string UploadDirectory { get; }

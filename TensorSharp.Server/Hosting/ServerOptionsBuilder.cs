@@ -43,7 +43,8 @@ namespace TensorSharp.Server.Hosting
                 out SamplingPrecedence? configuredPrecedence,
                 out ListenOverrides configuredListen,
                 out UploadLimitOverrides configuredUploads,
-                out bool configuredNoWebUi);
+                out bool configuredNoWebUi,
+                out ApiKeyOverrides configuredApiKey);
 
             if (!string.IsNullOrWhiteSpace(configuredMmProj) && string.IsNullOrWhiteSpace(configuredModel))
                 throw new ArgumentException("--mmproj requires --model.");
@@ -101,6 +102,8 @@ namespace TensorSharp.Server.Hosting
             bool webUiEnabled = !configuredNoWebUi
                 && (string.IsNullOrWhiteSpace(noWebUiEnv) || string.Equals(noWebUiEnv.Trim(), "0", StringComparison.Ordinal));
 
+            (string apiKey, ApiKeyScope apiKeyScope) = ResolveApiKey(configuredApiKey);
+
             return new ServerHostingOptions(
                 startupModelPath,
                 startupMmProjPath,
@@ -118,13 +121,15 @@ namespace TensorSharp.Server.Hosting
                 uploadMaxFileBytes,
                 uploadQuotaBytes,
                 uploadTtl,
-                webUiEnabled);
+                webUiEnabled,
+                apiKey,
+                apiKeyScope);
         }
 
         /// <summary>Backend originally requested via <c>--backend</c> / <c>BACKEND</c> (without the OS-default fallback).</summary>
         public static string ReadConfiguredBackendInput(string[] args)
         {
-            ParseArgs(args, out _, out _, out string configuredBackend, out _, out _, out _, out _, out _, out _, out _, out _);
+            ParseArgs(args, out _, out _, out string configuredBackend, out _, out _, out _, out _, out _, out _, out _, out _, out _);
             return configuredBackend ?? Environment.GetEnvironmentVariable("BACKEND");
         }
 
@@ -158,6 +163,59 @@ namespace TensorSharp.Server.Hosting
                 return TimeSpan.FromHours(hours);
             }
             return null;
+        }
+
+        /// <summary>API-key overrides captured from the CLI.</summary>
+        private struct ApiKeyOverrides
+        {
+            public string Key;
+            public string KeyFile;
+            public string ScopeRaw;
+        }
+
+        /// <summary>
+        /// Resolve the API key and its scope. Key precedence: <c>--api-key</c>
+        /// &gt; <c>--api-key-file</c> &gt; <c>TS_API_KEY</c>; no source set
+        /// means no key and the server stays fully anonymous. The scope flag is
+        /// only meaningful alongside a key, so passing it without one fails
+        /// fast instead of silently protecting nothing.
+        /// </summary>
+        private static (string Key, ApiKeyScope Scope) ResolveApiKey(ApiKeyOverrides cli)
+        {
+            string key = null;
+            if (cli.Key != null)
+            {
+                if (string.IsNullOrWhiteSpace(cli.Key))
+                    throw new ArgumentException("--api-key value must not be empty.");
+                key = cli.Key.Trim();
+            }
+            else if (cli.KeyFile != null)
+            {
+                if (!File.Exists(cli.KeyFile))
+                    throw new FileNotFoundException($"--api-key-file not found: {cli.KeyFile}", cli.KeyFile);
+                key = File.ReadAllText(cli.KeyFile).Trim();
+                if (key.Length == 0)
+                    throw new ArgumentException($"--api-key-file is empty: {cli.KeyFile}");
+            }
+            else
+            {
+                string env = Environment.GetEnvironmentVariable("TS_API_KEY");
+                if (!string.IsNullOrWhiteSpace(env))
+                    key = env.Trim();
+            }
+
+            ApiKeyScope scope = ApiKeyScope.All;
+            if (cli.ScopeRaw != null)
+            {
+                if (!ApiKeyAuthentication.TryParseScope(cli.ScopeRaw, out scope))
+                    throw new ArgumentException(
+                        $"Invalid value for --api-key-scope: '{cli.ScopeRaw}'. Valid: all, external.");
+                if (key == null)
+                    throw new ArgumentException(
+                        "--api-key-scope requires an API key (--api-key, --api-key-file, or TS_API_KEY).");
+            }
+
+            return (key, scope);
         }
 
         /// <summary>Listen address overrides captured from the CLI.</summary>
@@ -849,7 +907,8 @@ namespace TensorSharp.Server.Hosting
             out SamplingPrecedence? configuredPrecedence,
             out ListenOverrides configuredListen,
             out UploadLimitOverrides configuredUploads,
-            out bool configuredNoWebUi)
+            out bool configuredNoWebUi,
+            out ApiKeyOverrides configuredApiKey)
         {
             configuredModel = null;
             configuredMmProj = null;
@@ -862,6 +921,7 @@ namespace TensorSharp.Server.Hosting
             configuredListen = default;
             configuredUploads = default;
             configuredNoWebUi = false;
+            configuredApiKey = default;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -905,6 +965,24 @@ namespace TensorSharp.Server.Hosting
                     if (string.IsNullOrWhiteSpace(urlsOption))
                         throw new ArgumentException("Missing value for option '--urls'.");
                     configuredListen.Urls = urlsOption;
+                    continue;
+                }
+
+                if (TryReadOption(args, ref i, "--api-key", out string apiKeyOption))
+                {
+                    configuredApiKey.Key = apiKeyOption;
+                    continue;
+                }
+
+                if (TryReadOption(args, ref i, "--api-key-file", out string apiKeyFileOption))
+                {
+                    configuredApiKey.KeyFile = apiKeyFileOption;
+                    continue;
+                }
+
+                if (TryReadOption(args, ref i, "--api-key-scope", out string apiKeyScopeOption))
+                {
+                    configuredApiKey.ScopeRaw = apiKeyScopeOption;
                     continue;
                 }
 
@@ -1197,6 +1275,7 @@ namespace TensorSharp.Server.Hosting
             {
                 "--model", "--mmproj", "--backend", "--max-tokens", "--video-frames", "--fps",
                 "--port", "--host", "--urls", "--no-webui",
+                "--api-key", "--api-key-file", "--api-key-scope",
                 "--temperature", "--top-k", "--top-p", "--min-p",
                 "--repeat-penalty", "--repeat-last-n", "--presence-penalty", "--frequency-penalty",
                 "--seed", "--stop", "--sampling-precedence",

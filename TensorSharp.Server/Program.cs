@@ -271,6 +271,11 @@ StartupBanner.EmitBackendFallback(startupLogger, hostingOptions, configuredBacke
 // JSON without losing a single log line.
 app.UseApiExceptionHandling();
 app.UseTensorSharpRequestLogging();
+// Security headers on every response: a strict same-origin CSP for pages and
+// APIs, an inert sandbox policy for client-supplied /uploads content, plus
+// nosniff / referrer / frame headers. Registered via OnStarting, so it works
+// regardless of which downstream middleware writes the response.
+app.UseSecurityHeaders();
 // Convert a prompt-doesn't-fit-context failure into a 400. After request
 // logging so the rejection is still traced; before the endpoints so it covers
 // every protocol surface.
@@ -291,6 +296,11 @@ else
     startupLogger.LogInformation(LogEventIds.HostConfiguration,
         "Web UI disabled (--no-webui / TS_NO_WEBUI): wwwroot is not served; API endpoints and /uploads remain available");
 }
+// Opt-in API-key gate (inert when no key is configured). Placed after the
+// wwwroot static files so the bundled UI shell stays reachable, and before
+// /uploads and every endpoint so user content and all API surfaces require
+// the key. /health is exempted inside the middleware.
+app.UseApiKeyAuthentication(hostingOptions);
 // /uploads holds user-supplied files, so its content types come from the
 // UploadContentPolicy allow-list: media keeps real types, text/code always
 // comes back as text/plain (an uploaded .html page must never execute in the
