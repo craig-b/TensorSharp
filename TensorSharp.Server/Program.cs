@@ -33,9 +33,13 @@ Console.OutputEncoding = System.Text.Encoding.UTF8;
 // Merge in options from a --config <file.json> before anything reads argv.
 // File-derived tokens are spliced in ahead of the real command line, so any
 // option also passed on the command line overrides the file (every option
-// pass below is last-one-wins). The --config flag itself is stripped here.
+// pass below is last-one-wins). The --config flag itself is stripped here;
+// the paths are kept for the per-model "presets" blocks the model-options
+// resolver reads at load time.
+System.Collections.Generic.IReadOnlyList<string> configFilePaths;
 try
 {
+    configFilePaths = ServerOptionsBuilder.ReadConfigPaths(args);
     args = ConfigFileArgs.Expand(args);
 }
 catch (Exception ex) when (ex is ArgumentException or FileNotFoundException)
@@ -75,9 +79,10 @@ bool pagedKvFlagsApplied = ServerOptionsBuilder.ApplyPagedKvCacheCliFlags(args);
 // TS_RESPONSES_STORE_REDIS_URL so a single flag enables Redis for both the
 // paged KV cache tier and the Responses API store.
 bool redisFlagsApplied = ServerOptionsBuilder.ApplyRedisCliFlags(args);
-// Typed model-layer overrides, passed to ModelBase.Create on every load.
-// All-null when no covered flag is present, which keeps env-var behaviour.
-TensorSharp.Models.ModelOptions modelOptions = ServerOptionsBuilder.BuildModelOptions(args);
+// Typed model-layer overrides, resolved per model load (env < per-model
+// preset < CLI/--set) and passed to ModelBase.Create. All-null when nothing
+// covered is configured, which keeps env-var behaviour.
+var modelOptionsResolver = ServerOptionsBuilder.CreateModelOptionsResolver(args, configFilePaths);
 // Typed scheduler / MTP overrides (--continuous-batching, --prefill-chunk-size,
 // --mtp-*, --draft-model), installed as the ambient SchedulerOverrides.Current
 // instead of TS_SCHED_* / TS_MTP_* env writes. Must run before InferenceEngine
@@ -135,7 +140,7 @@ var uploadPolicy = new UploadStoragePolicy(
 builder.Services.AddSingleton(uploadPolicy);
 if (hostingOptions.UploadTtl.HasValue)
     builder.Services.AddHostedService<UploadCleanupService>();
-builder.Services.AddSingleton(modelOptions);
+builder.Services.AddSingleton(modelOptionsResolver);
 builder.Services.AddSingleton<ModelService>();
 builder.Services.AddSingleton<InferenceQueue>();
 builder.Services.AddSingleton<SessionManager>();

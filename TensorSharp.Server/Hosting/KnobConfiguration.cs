@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Microsoft.Extensions.Configuration;
 using TensorSharp.Models;
 
@@ -28,33 +29,55 @@ namespace TensorSharp.Server.Hosting
         }
     }
 
-    /// <summary>Builds the model-knob configuration tree (env below, CLI
-    /// above) and binds it into the typed options record the server passes to
-    /// <c>ModelBase.Create</c>.</summary>
+    /// <summary>Builds the model-knob configuration tree and binds it into
+    /// the typed options record the server passes to
+    /// <c>ModelBase.Create</c>. Precedence, lowest to highest: env vars,
+    /// per-model preset (from a <c>--config</c> file's <c>"presets"</c>
+    /// object), CLI flags / <c>--set</c>.</summary>
     internal static class ModelKnobConfig
     {
-        /// <summary>Env vars snapshotted at call time, then CLI flag
-        /// overrides on top (a later provider wins in
-        /// Microsoft.Extensions.Configuration).</summary>
+        /// <summary>Global tree: env snapshot below, CLI overrides above.</summary>
         public static IConfigurationRoot BuildConfiguration(string[] args)
+            => BuildConfiguration(args, configPaths: null, modelFileName: null);
+
+        /// <summary>Per-model tree: env, then any matching
+        /// <c>presets.&lt;modelFileName&gt;</c> block from the config files,
+        /// then CLI overrides (a later provider wins).</summary>
+        public static IConfigurationRoot BuildConfiguration(string[] args, IReadOnlyList<string> configPaths, string modelFileName)
         {
-            return new ConfigurationBuilder()
-                .Add(new KnobEnvConfigurationSource())
+            var builder = new ConfigurationBuilder()
+                .Add(new KnobEnvConfigurationSource());
+            if (configPaths != null && modelFileName != null)
+            {
+                foreach (string path in configPaths)
+                    builder.AddInMemoryCollection(ReadPreset(path, modelFileName));
+            }
+            return builder
                 .AddInMemoryCollection(CollectCliOverrides(args))
                 .Build();
         }
 
-        /// <summary>Registry-driven flag scan: an arg matching a knob's flag
-        /// list sets that knob's config key; a <c>--no-</c> prefix means
-        /// false. Later flags win, matching the env-writing flag loops.</summary>
+        /// <summary>Registry-driven flag scan. An arg matching a knob's flag
+        /// list sets that knob's config key (a <c>--no-</c> prefix means
+        /// false); <c>--set NAME=VALUE</c> sets any registry knob by its env
+        /// var name. Later args win, matching the env-writing flag loops.</summary>
         public static Dictionary<string, string> CollectCliOverrides(string[] args)
         {
             var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (args == null)
                 return overrides;
 
-            foreach (string arg in args)
+            for (int i = 0; i < args.Length; i++)
             {
+                string arg = args[i];
+                if (string.Equals(arg, "--set", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (i + 1 >= args.Length)
+                        throw new ArgumentException("--set needs an argument of the form NAME=VALUE (e.g. --set TS_PREFILL_CHUNK=512).");
+                    ApplySet(args[++i], overrides);
+                    continue;
+                }
+
                 foreach (KnobDef knob in KnobRegistry.All)
                 {
                     foreach (string flag in knob.Flags)
@@ -67,6 +90,64 @@ namespace TensorSharp.Server.Hosting
                 }
             }
             return overrides;
+        }
+
+        private static void ApplySet(string assignment, Dictionary<string, string> overrides)
+        {
+            int eq = assignment.IndexOf('=');
+            if (eq <= 0 || eq == assignment.Length - 1)
+                throw new ArgumentException($"Invalid --set '{assignment}': expected NAME=VALUE.");
+
+            string name = assignment.Substring(0, eq).Trim();
+            string value = assignment.Substring(eq + 1).Trim();
+            KnobDef knob = KnobRegistry.ByEnvVar(name);
+            if (knob == null)
+                throw new ArgumentException($"Unknown knob in --set: '{name}'. See docs/knobs.md for the full list.");
+            if (!KnobValue.TryNormalize(knob, value, out string normalized))
+                throw new ArgumentException($"Invalid value for --set {name}: '{value}'. Expected {ExpectedInput(knob)}.");
+            overrides[knob.ConfigKey] = normalized;
+        }
+
+        /// <summary>Human description of the values <see cref="KnobValue"/>
+        /// accepts for a knob, for fail-fast messages.</summary>
+        internal static string ExpectedInput(KnobDef knob)
+        {
+            if (knob.Kind == KnobKind.Int)
+                return $"an integer >= {knob.IntMin}";
+            return knob.Dialect switch
+            {
+                BoolDialect.InvertedDisable => "1 (disable) or 0 (keep enabled) — inverted opt-out variable",
+                _ => "1 or 0",
+            };
+        }
+
+        /// <summary>Reads <c>presets.&lt;modelFileName&gt;</c> from a
+        /// <c>--config</c> JSON file, remapped onto the knobs' config keys.
+        /// Preset keys are options-record property names; an unknown key is a
+        /// config error, not a silent no-op.</summary>
+        private static Dictionary<string, string> ReadPreset(string configPath, string modelFileName)
+        {
+            var remapped = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (!File.Exists(configPath))
+                return remapped;
+
+            var json = new ConfigurationBuilder()
+                .AddJsonFile(Path.GetFullPath(configPath), optional: false)
+                .Build();
+            IConfigurationSection preset = json.GetSection("presets").GetSection(modelFileName);
+            foreach (IConfigurationSection entry in preset.GetChildren())
+            {
+                KnobDef knob = KnobRegistry.ByProperty(entry.Key);
+                if (knob == null)
+                {
+                    throw new ArgumentException(
+                        $"Unknown knob '{entry.Key}' in preset '{modelFileName}' of {configPath}. "
+                        + "Preset keys are options property names — see docs/knobs.md.");
+                }
+                if (entry.Value != null)
+                    remapped[knob.ConfigKey] = entry.Value;
+            }
+            return remapped;
         }
 
         /// <summary>Binds as <see cref="Qwen35Options"/> so the Qwen-specific

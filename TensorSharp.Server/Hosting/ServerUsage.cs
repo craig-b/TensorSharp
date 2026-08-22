@@ -354,9 +354,20 @@ namespace TensorSharp.Server.Hosting
                     "flag is repeated, later files win over earlier ones. String/number values map to '--key value', " +
                     "true maps to the bare '--key' switch, and an array maps to a repeated flag (e.g. \"stop\": [..]). " +
                     "A \"variables\" object lets values share ${name} references; a file option may instead be an " +
-                    "object { \"path\": \"...\", \"urls\": [ \"...\" ] } that auto-downloads on first run. See the " +
-                    "config/ folder and config/README.md for examples.",
+                    "object { \"path\": \"...\", \"urls\": [ \"...\" ] } that auto-downloads on first run. A " +
+                    "\"presets\" object holds per-model tuning-knob blocks keyed by GGUF file name (keys are knob " +
+                    "property names from docs/knobs.md), applied whenever that model loads — above its env vars, " +
+                    "below explicit flags / --set. See the config/ folder and config/README.md for examples.",
                     "--config server.json --backend ggml_cuda"),
+            }),
+            ("Tuning knobs", new[]
+            {
+                new OptionHelp("--set NAME=VALUE",
+                    "Set any tuning knob from the knob registry by its environment-variable name, at CLI precedence " +
+                    "(beats the env var and config-file presets). Repeatable. Bools take 1/0; unknown names and " +
+                    "out-of-dialect values fail startup rather than being silently ignored. The full knob list, " +
+                    "types, and env-var dialects are generated into docs/knobs.md.",
+                    "--set TS_PREFILL_CHUNK=512 --set TS_QWEN35_FULL_DECODE=0"),
             }),
             ("Help", new[]
             {

@@ -19,22 +19,24 @@ namespace TensorSharp.Server
     {
         private readonly ILogger _logger;
         private readonly Func<string, BackendType, ITensorParallelGroup, string, ModelBase> _createModel;
-        private readonly ModelOptions _modelOptions;
+        private readonly Func<string, ModelOptions> _modelOptionsResolver;
 
         private ModelBase _model;
         private string _loadedModelPath;
         private string _loadedMmProjPath;
         private BackendType _backend;
 
-        /// <summary><paramref name="modelOptions"/> is handed to every
-        /// <see cref="ModelBase.Create"/> call; null (or all-null) keeps pure
+        /// <summary><paramref name="modelOptionsResolver"/> supplies the typed
+        /// options for each <see cref="ModelBase.Create"/> call (it sees the
+        /// loading model's path, so per-model presets apply); null keeps pure
         /// env-var behaviour.</summary>
-        public ModelLifecycleService(ILogger logger, ModelOptions modelOptions = null)
+        public ModelLifecycleService(ILogger logger, Func<string, ModelOptions> modelOptionsResolver = null)
         {
             _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
-            _modelOptions = modelOptions;
+            _modelOptionsResolver = modelOptionsResolver;
             _createModel = (path, backend, tpGroup, draftPath) =>
-                ModelBase.Create(path, backend, tpGroup: tpGroup, draftModelPath: draftPath, options: _modelOptions);
+                ModelBase.Create(path, backend, tpGroup: tpGroup, draftModelPath: draftPath,
+                    options: _modelOptionsResolver?.Invoke(path));
         }
 
         /// <summary>Test seam: <paramref name="createModel"/> stands in for

@@ -393,6 +393,37 @@ namespace TensorSharp.Server.Hosting
         }
 
         /// <summary>
+        /// Per-model options resolver used at every model load. Layers, lowest
+        /// to highest: env vars, the loading model's <c>"presets"</c> block
+        /// from the <c>--config</c> file(s) (keyed by GGUF file name), CLI
+        /// flags / <c>--set</c>. <paramref name="expandedArgs"/> is the argv
+        /// AFTER <see cref="ConfigFileArgs.Expand"/>;
+        /// <paramref name="configPaths"/> comes from
+        /// <see cref="ReadConfigPaths"/> on the RAW argv (Expand strips the
+        /// flag).
+        /// </summary>
+        public static Func<string, ModelOptions> CreateModelOptionsResolver(string[] expandedArgs, IReadOnlyList<string> configPaths)
+        {
+            return modelPath => ModelKnobConfig.Bind(ModelKnobConfig.BuildConfiguration(
+                expandedArgs, configPaths, modelPath == null ? null : Path.GetFileName(modelPath)));
+        }
+
+        /// <summary>The <c>--config</c> paths as they appeared on the raw
+        /// command line, in order.</summary>
+        public static IReadOnlyList<string> ReadConfigPaths(string[] rawArgs)
+        {
+            var paths = new List<string>();
+            if (rawArgs == null)
+                return paths;
+            for (int i = 0; i < rawArgs.Length; i++)
+            {
+                if (TryReadOption(rawArgs, ref i, ConfigFileArgs.ConfigFlag, out string path))
+                    paths.Add(path);
+            }
+            return paths;
+        }
+
+        /// <summary>
         /// Translate <c>--kv-cache-dtype &lt;f32|f16|q8_0|q4_0&gt;</c> into the
         /// process-wide <see cref="TensorSharp.Models.KvCacheDtypeConfig"/> so the
         /// startup model picks it up at <c>InitKVCache</c>. Overrides any value
@@ -1148,6 +1179,11 @@ namespace TensorSharp.Server.Hosting
                 {
                     continue;
                 }
+                // --set NAME=VALUE is consumed by ModelKnobConfig's CLI pass.
+                if (TryReadOption(args, ref i, "--set", out _))
+                {
+                    continue;
+                }
                 // Qwen-Image-Edit companion-model flags are consumed by
                 // ApplyQwenImageCompanionCliFlags(args) in a separate earlier
                 // pass. Recognise + skip them here so they don't trip the
@@ -1211,7 +1247,7 @@ namespace TensorSharp.Server.Hosting
                 "--kv-cache-dtype", "--gpu-device", "--list-gpus", "--help",
                 "--tp", "--tp-node-id", "--tp-peers",
                 "--upload-max-mb", "--upload-quota-mb", "--upload-ttl-hours",
-                "--config",
+                "--config", "--set",
             };
             string best = null;
             int bestDist = int.MaxValue;
