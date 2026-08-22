@@ -75,11 +75,14 @@ bool pagedKvFlagsApplied = ServerOptionsBuilder.ApplyPagedKvCacheCliFlags(args);
 // TS_RESPONSES_STORE_REDIS_URL so a single flag enables Redis for both the
 // paged KV cache tier and the Responses API store.
 bool redisFlagsApplied = ServerOptionsBuilder.ApplyRedisCliFlags(args);
-// Translate --continuous-batching / --no-continuous-batching into env vars
-// that gate BatchExecutor (TS_SCHED_DISABLE_BATCHED) and Qwen3.5 ForwardBatch
-// (TS_QWEN35_BATCHED). Must run before InferenceEngine constructs its
-// BatchExecutor and the per-model batched-paged adapters initialise.
+// Translate --continuous-batching / --no-continuous-batching into the env var
+// that gates BatchExecutor (TS_SCHED_DISABLE_BATCHED). Must run before
+// InferenceEngine constructs its BatchExecutor. The model-side gate travels
+// as typed options (modelOptions below), not an env write.
 bool continuousBatchingFlagApplied = ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(args);
+// Typed model-layer overrides, passed to ModelBase.Create on every load.
+// All-null when no covered flag is present, which keeps env-var behaviour.
+TensorSharp.Models.ModelOptions modelOptions = ServerOptionsBuilder.BuildModelOptions(args);
 // Translate --mtp-spec / --mtp-draft / --mtp-pmin into the TS_MTP_* env vars
 // read by SchedulerConfig.FromEnvironment when the engine is constructed.
 bool mtpSpecFlagsApplied = ServerOptionsBuilder.ApplyMtpSpeculativeCliFlags(args);
@@ -133,6 +136,7 @@ var uploadPolicy = new UploadStoragePolicy(
 builder.Services.AddSingleton(uploadPolicy);
 if (hostingOptions.UploadTtl.HasValue)
     builder.Services.AddHostedService<UploadCleanupService>();
+builder.Services.AddSingleton(modelOptions);
 builder.Services.AddSingleton<ModelService>();
 builder.Services.AddSingleton<InferenceQueue>();
 builder.Services.AddSingleton<SessionManager>();

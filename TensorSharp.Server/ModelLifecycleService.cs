@@ -19,20 +19,26 @@ namespace TensorSharp.Server
     {
         private readonly ILogger _logger;
         private readonly Func<string, BackendType, ITensorParallelGroup, string, ModelBase> _createModel;
+        private readonly ModelOptions _modelOptions;
 
         private ModelBase _model;
         private string _loadedModelPath;
         private string _loadedMmProjPath;
         private BackendType _backend;
 
-        public ModelLifecycleService(ILogger logger)
-            : this(logger, static (path, backend, tpGroup, draftPath) =>
-                ModelBase.Create(path, backend, tpGroup: tpGroup, draftModelPath: draftPath))
+        /// <summary><paramref name="modelOptions"/> is handed to every
+        /// <see cref="ModelBase.Create"/> call; null (or all-null) keeps pure
+        /// env-var behaviour.</summary>
+        public ModelLifecycleService(ILogger logger, ModelOptions modelOptions = null)
         {
+            _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+            _modelOptions = modelOptions;
+            _createModel = (path, backend, tpGroup, draftPath) =>
+                ModelBase.Create(path, backend, tpGroup: tpGroup, draftModelPath: draftPath, options: _modelOptions);
         }
 
         /// <summary>Test seam: <paramref name="createModel"/> stands in for
-        /// <see cref="ModelBase.Create(string, BackendType, int, ITensorParallelGroup, string)"/>.</summary>
+        /// <see cref="ModelBase.Create(string, BackendType, int, ITensorParallelGroup, string, ModelOptions)"/>.</summary>
         internal ModelLifecycleService(ILogger logger, Func<string, BackendType, ITensorParallelGroup, string, ModelBase> createModel)
         {
             _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;

@@ -13,6 +13,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using TensorSharp.Models;
 using TensorSharp.Runtime;
 
 namespace TensorSharp.Server.Hosting
@@ -260,20 +261,18 @@ namespace TensorSharp.Server.Hosting
 
         /// <summary>
         /// Translate <c>--continuous-batching</c> / <c>--no-continuous-batching</c>
-        /// into the two env vars that gate the batched path:
-        /// <c>TS_SCHED_DISABLE_BATCHED</c> (scheduler — falls through to
-        /// per-sequence KV-swap when set) and <c>TS_QWEN35_BATCHED</c>
-        /// (model — Qwen3.5 ForwardBatch gate; default ON, set to 0 to force
-        /// the per-seq fallback). Both default to ON, so operators get
-        /// paged-attention continuous batching without setting any env vars
-        /// and without passing any flag; <c>--continuous-batching</c> is
-        /// idempotent with the default, kept for explicit operator intent.
+        /// into the scheduler env var that gates the batched path:
+        /// <c>TS_SCHED_DISABLE_BATCHED</c> (falls through to per-sequence
+        /// KV-swap when set). Default is ON, so operators get paged-attention
+        /// continuous batching without setting any env vars and without passing
+        /// any flag; <c>--continuous-batching</c> is idempotent with the
+        /// default, kept for explicit operator intent.
         /// <c>--no-continuous-batching</c> forces the per-seq path for every
-        /// model.
+        /// model. The model-side gate (Qwen3.5 ForwardBatch) is carried by
+        /// <see cref="BuildModelOptions"/> instead of an env write.
         ///
         /// Must run before <see cref="InferenceEngine"/> is constructed because
-        /// <c>BatchExecutor</c> and Qwen3.5's <c>SupportsBatchedMultimodal</c>
-        /// read the env vars at runtime on each step.
+        /// <c>BatchExecutor</c> reads the env var at runtime on each step.
         /// </summary>
         public static bool ApplyContinuousBatchingCliFlag(string[] args)
         {
@@ -288,7 +287,6 @@ namespace TensorSharp.Server.Hosting
                     || string.Equals(a, "--paged-batching", StringComparison.OrdinalIgnoreCase))
                 {
                     Environment.SetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED", "0");
-                    Environment.SetEnvironmentVariable("TS_QWEN35_BATCHED", "1");
                     changed = true;
                     continue;
                 }
@@ -296,7 +294,6 @@ namespace TensorSharp.Server.Hosting
                     || string.Equals(a, "--no-paged-batching", StringComparison.OrdinalIgnoreCase))
                 {
                     Environment.SetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED", "1");
-                    Environment.SetEnvironmentVariable("TS_QWEN35_BATCHED", "0");
                     changed = true;
                     continue;
                 }
@@ -315,6 +312,43 @@ namespace TensorSharp.Server.Hosting
                 }
             }
             return changed;
+        }
+
+        /// <summary>
+        /// Typed model-layer overrides captured from the CLI, handed to
+        /// <c>ModelBase.Create</c> on every model load instead of travelling
+        /// through process env vars. All-null (the no-flags result) is
+        /// byte-identical to passing no options: each knob falls back to its
+        /// existing env-var read (see <see cref="ModelOptions"/>). Later flags
+        /// win over earlier ones, matching the env-writing flag loops.
+        /// </summary>
+        public static ModelOptions BuildModelOptions(string[] args)
+        {
+            bool? batched = null;
+            if (args != null)
+            {
+                for (int i = 0; i < args.Length; i++)
+                {
+                    string a = args[i];
+                    if (string.Equals(a, "--continuous-batching", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(a, "--paged-batching", StringComparison.OrdinalIgnoreCase))
+                    {
+                        batched = true;
+                    }
+                    else if (string.Equals(a, "--no-continuous-batching", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(a, "--no-paged-batching", StringComparison.OrdinalIgnoreCase))
+                    {
+                        batched = false;
+                    }
+                }
+            }
+
+            // Qwen35Options so the Qwen-specific gates are reachable; other
+            // architectures see it as its ModelOptions base.
+            return new Qwen35Options
+            {
+                Batched = batched,
+            };
         }
 
         /// <summary>

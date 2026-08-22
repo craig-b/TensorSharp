@@ -10,6 +10,7 @@
 
 using System;
 using System.IO;
+using TensorSharp.Models;
 using TensorSharp.Runtime.Scheduling;
 using TensorSharp.Server.Hosting;
 
@@ -240,38 +241,36 @@ public class ServerOptionsBuilderTests : IDisposable
     }
 
     [Fact]
-    public void ApplyContinuousBatchingCliFlag_OnFlag_EnablesBothEnvVars()
+    public void ApplyContinuousBatchingCliFlag_OnFlag_SetsSchedulerEnvOnly()
     {
         _env.Set("TS_SCHED_DISABLE_BATCHED", null);
         _env.Set("TS_QWEN35_BATCHED", null);
         bool applied = ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(new[] { "--continuous-batching" });
         Assert.True(applied);
         Assert.Equal("0", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
-        Assert.Equal("1", Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
+        // The model-side gate travels as typed options now, never an env write.
+        Assert.Null(Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
     }
 
     [Fact]
-    public void ApplyContinuousBatchingCliFlag_OffFlag_DisablesBatchedAtBothLayers()
+    public void ApplyContinuousBatchingCliFlag_OffFlag_SetsSchedulerEnvOnly()
     {
         _env.Set("TS_SCHED_DISABLE_BATCHED", null);
-        _env.Set("TS_QWEN35_BATCHED", "1");
+        _env.Set("TS_QWEN35_BATCHED", null);
         bool applied = ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(new[] { "--no-continuous-batching" });
         Assert.True(applied);
         Assert.Equal("1", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
-        Assert.Equal("0", Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
+        Assert.Null(Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
     }
 
     [Fact]
     public void ApplyContinuousBatchingCliFlag_PagedBatchingAlias_BehavesSameAsCanonical()
     {
         _env.Set("TS_SCHED_DISABLE_BATCHED", null);
-        _env.Set("TS_QWEN35_BATCHED", null);
         Assert.True(ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(new[] { "--paged-batching" }));
         Assert.Equal("0", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
-        Assert.Equal("1", Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
         Assert.True(ServerOptionsBuilder.ApplyContinuousBatchingCliFlag(new[] { "--no-paged-batching" }));
         Assert.Equal("1", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
-        Assert.Equal("0", Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
     }
 
     [Fact]
@@ -283,6 +282,35 @@ public class ServerOptionsBuilderTests : IDisposable
         Assert.False(applied);
         Assert.Equal("0", Environment.GetEnvironmentVariable("TS_SCHED_DISABLE_BATCHED"));
         Assert.Equal("1", Environment.GetEnvironmentVariable("TS_QWEN35_BATCHED"));
+    }
+
+    [Fact]
+    public void BuildModelOptions_NoFlags_IsAllNull()
+    {
+        var options = ServerOptionsBuilder.BuildModelOptions(new[] { "--unrelated", "value" });
+        var qwen = Assert.IsType<Qwen35Options>(options);
+        Assert.Null(qwen.Batched);
+    }
+
+    [Fact]
+    public void BuildModelOptions_ContinuousBatchingFlags_SetBatched()
+    {
+        Assert.True(((Qwen35Options)ServerOptionsBuilder.BuildModelOptions(
+            new[] { "--continuous-batching" })).Batched);
+        Assert.False(((Qwen35Options)ServerOptionsBuilder.BuildModelOptions(
+            new[] { "--no-continuous-batching" })).Batched);
+        Assert.True(((Qwen35Options)ServerOptionsBuilder.BuildModelOptions(
+            new[] { "--paged-batching" })).Batched);
+        Assert.False(((Qwen35Options)ServerOptionsBuilder.BuildModelOptions(
+            new[] { "--no-paged-batching" })).Batched);
+    }
+
+    [Fact]
+    public void BuildModelOptions_ConflictingFlags_LastWins()
+    {
+        var qwen = (Qwen35Options)ServerOptionsBuilder.BuildModelOptions(
+            new[] { "--continuous-batching", "--no-continuous-batching" });
+        Assert.False(qwen.Batched);
     }
 
     [Fact]
