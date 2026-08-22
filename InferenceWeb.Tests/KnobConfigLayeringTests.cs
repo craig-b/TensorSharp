@@ -51,15 +51,16 @@ public class KnobConfigLayeringTests : IDisposable
         (Qwen35Options)ServerOptionsBuilder.BuildModelOptions(args ?? Array.Empty<string>());
 
     [Theory]
-    // LooseDefaultOn: "0" off everywhere, non-{"0","false"} on everywhere,
-    // "false" varies per site → deferred (null).
+    // Canonical bool tokens map on any dialect; unset or unrecognized values
+    // stay null here (KnobResolver applies the default at model construction).
     [InlineData(null, null)]
     [InlineData("0", false)]
     [InlineData("1", true)]
     [InlineData("yes", true)]
     [InlineData("true", true)]
-    [InlineData("false", null)]
-    public void LooseDefaultOn_NormalizesOnlyAgreedValues(string raw, bool? expected)
+    [InlineData("false", false)]
+    [InlineData("banana", null)]
+    public void DefaultOn_NormalizesCanonicalTokens(string raw, bool? expected)
     {
         Environment.SetEnvironmentVariable("TS_QWEN35_BATCHED", raw);
         Assert.Equal(expected, Bind().Batched);
@@ -68,41 +69,30 @@ public class KnobConfigLayeringTests : IDisposable
     }
 
     [Theory]
-    // StrictOptIn: "1"/"0" definitive; word forms vary per site → deferred.
     [InlineData(null, null)]
     [InlineData("1", true)]
     [InlineData("0", false)]
-    [InlineData("true", null)]
-    [InlineData("yes", null)]
-    public void StrictOptIn_NormalizesOnlyAgreedValues(string raw, bool? expected)
+    [InlineData("true", true)]
+    [InlineData("yes", true)]
+    [InlineData("2", null)]
+    public void DefaultOff_NormalizesCanonicalTokens(string raw, bool? expected)
     {
         Environment.SetEnvironmentVariable("TS_QWEN35_VERIFY_RESIDENT", raw);
         Assert.Equal(expected, Bind().VerifyResident);
     }
 
     [Theory]
-    // InvertedDisable ("DISABLE_*" var, positive-sense property): "1"
-    // disables everywhere, "0" nowhere; "true" varies per site → deferred.
+    // InvertedDisable ("DISABLE_*" var, positive-sense property): a true
+    // token disables, so the normalized value comes out negated.
     [InlineData(null, null)]
     [InlineData("1", false)]
     [InlineData("0", true)]
-    [InlineData("true", null)]
-    public void InvertedDisable_NormalizesOnlyAgreedValues(string raw, bool? expected)
+    [InlineData("true", false)]
+    [InlineData("off", true)]
+    public void InvertedDisable_NormalizesCanonicalTokensNegated(string raw, bool? expected)
     {
         Environment.SetEnvironmentVariable("TS_DISABLE_FUSED_DENSE_FFN", raw);
         Assert.Equal(expected, Bind().FusedDenseFfn);
-    }
-
-    [Theory]
-    // Set → on only when exactly "1" (single-site family, fully mapped).
-    [InlineData(null, null)]
-    [InlineData("1", true)]
-    [InlineData("0", false)]
-    [InlineData("yes", false)]
-    public void OnRequiresExactlyOne_MapsAllSetValues(string raw, bool? expected)
-    {
-        Environment.SetEnvironmentVariable("TS_MLX_MLOCK_GGUF", raw);
-        Assert.Equal(expected, Bind().MlxMlockGguf);
     }
 
     [Theory]

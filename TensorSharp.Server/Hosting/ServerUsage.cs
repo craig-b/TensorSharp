@@ -365,7 +365,7 @@ namespace TensorSharp.Server.Hosting
                 new OptionHelp("--set NAME=VALUE",
                     "Set any tuning knob from the knob registry by its environment-variable name, at CLI precedence " +
                     "(beats the env var and config-file presets). Repeatable. Bools take 1/0; unknown names and " +
-                    "out-of-dialect values fail startup rather than being silently ignored. The full knob list, " +
+                    "unrecognized values fail startup rather than being silently ignored. The full knob list, " +
                     "types, and env-var dialects are generated into docs/knobs.md.",
                     "--set TS_PREFILL_CHUNK=512 --set TS_QWEN35_FULL_DECODE=0"),
             }),

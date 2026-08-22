@@ -6,23 +6,21 @@ using Xunit;
 namespace InferenceWeb.Tests;
 
 /// <summary>
-/// Characterization tests for <see cref="KnobResolver"/>: the expected values
-/// below are the literal truth tables of the per-site env parses the resolver
-/// replaced (taken from the pre-refactor read sites), so a resolver or
-/// registry-dialect change that would shift any knob's effective behaviour
-/// fails here.
+/// Tests for <see cref="KnobResolver"/>: the canonical bool dialect's literal
+/// truth tables (one theory per family), the int fill rules, and the
+/// resolution mechanics (precedence, cloning, scope, the exempt knob).
 /// </summary>
 public class KnobResolverTests : IDisposable
 {
     private static readonly string[] TouchedVars =
     {
-        "TS_QWEN35_FULL_DECODE",        // LooseZeroOnly
-        "TS_GGML_F32_RESIDENT",         // LooseZeroOnly (model scope)
-        "TS_QWEN35_BATCHED",            // LooseZeroOrFalse
-        "TS_QWEN35_VERIFY_RESIDENT",    // StrictOptIn
-        "GDN_DISABLE_CHUNKED_PREFILL",  // InvertedDisableOne
-        "TS_DISABLE_FUSED_DENSE_FFN",   // InvertedDisableOneOrTrue
-        "TS_MLX_MLOCK_GGUF",            // OnRequiresExactlyOneWhenSet
+        "TS_QWEN35_FULL_DECODE",        // DefaultOn
+        "TS_GGML_F32_RESIDENT",         // DefaultOn (model scope)
+        "TS_QWEN35_BATCHED",            // DefaultOn
+        "TS_QWEN35_VERIFY_RESIDENT",    // DefaultOff
+        "GDN_DISABLE_CHUNKED_PREFILL",  // InvertedDisable
+        "TS_DISABLE_FUSED_DENSE_FFN",   // InvertedDisable
+        "TS_MLX_MLOCK_GGUF",            // DefaultOn
         "TS_PREFILL_CHUNK",             // int, min 1
         "TS_PREFILL_WARMUP_LEN",        // int, min 2
         "TS_CUDA_PREFILL_GRAPH_MAX_SEQLEN", // int, min 0
@@ -47,87 +45,63 @@ public class KnobResolverTests : IDisposable
     private static Qwen35Options Resolve() =>
         (Qwen35Options)KnobResolver.Resolve(new Qwen35Options());
 
-    // ----- bool dialects: one representative knob per family ---------------
+    // ----- canonical bool dialect ------------------------------------------
 
-    [Theory] // site was: !string.Equals(env, "0", Ordinal)
+    [Theory] // canonical tokens, i-case; unset/empty/unrecognized -> default (on)
     [InlineData(null, true)]
     [InlineData("", true)]
     [InlineData("0", false)]
     [InlineData("1", true)]
-    [InlineData("false", true)]  // "false" is ON in this family
-    [InlineData("False", true)]
-    [InlineData("no", true)]
-    public void LooseZeroOnly_MatchesLegacySiteParse(string raw, bool expected)
+    [InlineData("false", false)]
+    [InlineData("False", false)]
+    [InlineData("no", false)]
+    [InlineData("off", false)]
+    [InlineData("yes", true)]
+    [InlineData("ON", true)]
+    [InlineData("banana", true)]  // unrecognized -> warn once + default
+    public void DefaultOn_UsesCanonicalTokens(string raw, bool expected)
     {
         Environment.SetEnvironmentVariable("TS_QWEN35_FULL_DECODE", raw);
         Environment.SetEnvironmentVariable("TS_GGML_F32_RESIDENT", raw);
+        Environment.SetEnvironmentVariable("TS_QWEN35_BATCHED", raw);
+        Environment.SetEnvironmentVariable("TS_MLX_MLOCK_GGUF", raw);
         Qwen35Options o = Resolve();
         Assert.Equal(expected, o.FullDecode);
         Assert.Equal(expected, o.GgmlF32Resident);
+        Assert.Equal(expected, o.Batched);
+        Assert.Equal(expected, o.MlxMlockGguf);
     }
 
-    [Theory] // site was: raw != "0" && !equals(raw, "false", OrdinalIgnoreCase)
-    [InlineData(null, true)]
-    [InlineData("", true)]
-    [InlineData("0", false)]
-    [InlineData("false", false)]
-    [InlineData("FALSE", false)]
-    [InlineData("1", true)]
-    [InlineData("yes", true)]
-    public void LooseZeroOrFalse_MatchesLegacySiteParse(string raw, bool expected)
-    {
-        Environment.SetEnvironmentVariable("TS_QWEN35_BATCHED", raw);
-        Assert.Equal(expected, Resolve().Batched);
-    }
-
-    [Theory] // site was: string.Equals(env, "1", Ordinal)
+    [Theory] // opt-in knob: unset/empty/unrecognized -> default (off)
     [InlineData(null, false)]
     [InlineData("", false)]
     [InlineData("1", true)]
+    [InlineData("true", true)]
+    [InlineData("TRUE", true)]
+    [InlineData("yes", true)]
     [InlineData("0", false)]
-    [InlineData("true", false)]
-    [InlineData("2", false)]
-    public void StrictOptIn_MatchesLegacySiteParse(string raw, bool expected)
+    [InlineData("2", false)]      // unrecognized -> warn once + default
+    public void DefaultOff_UsesCanonicalTokens(string raw, bool expected)
     {
         Environment.SetEnvironmentVariable("TS_QWEN35_VERIFY_RESIDENT", raw);
         Assert.Equal(expected, Resolve().VerifyResident);
     }
 
-    [Theory] // site was: disabled iff string.Equals(env, "1", Ordinal); property positive-sense
+    [Theory] // DISABLE_* var: a true token disables; property positive-sense
     [InlineData(null, true)]
     [InlineData("1", false)]
-    [InlineData("true", true)]   // word forms do NOT disable this family
+    [InlineData("true", false)]
+    [InlineData("YES", false)]
     [InlineData("0", true)]
-    [InlineData("", true)]
-    public void InvertedDisableOne_MatchesLegacySiteParse(string raw, bool expected)
+    [InlineData("off", true)]
+    [InlineData("banana", true)]  // unrecognized -> warn once + default (on)
+    public void InvertedDisable_UsesCanonicalTokens(string raw, bool expected)
     {
         Environment.SetEnvironmentVariable("GDN_DISABLE_CHUNKED_PREFILL", raw);
-        Assert.Equal(expected, Resolve().GdnChunkedPrefill);
-    }
-
-    [Theory] // site was: disabled iff env == "1" || equals(env, "true", OrdinalIgnoreCase)
-    [InlineData(null, true)]
-    [InlineData("1", false)]
-    [InlineData("true", false)]
-    [InlineData("TRUE", false)]
-    [InlineData("0", true)]
-    [InlineData("yes", true)]
-    public void InvertedDisableOneOrTrue_MatchesLegacySiteParse(string raw, bool expected)
-    {
         Environment.SetEnvironmentVariable("TS_DISABLE_FUSED_DENSE_FFN", raw);
-        Assert.Equal(expected, Resolve().FusedDenseFfn);
-    }
-
-    [Theory] // site was: string.Equals(env ?? "1", "1", Ordinal)
-    [InlineData(null, true)]
-    [InlineData("1", true)]
-    [InlineData("", false)]
-    [InlineData("true", false)]
-    [InlineData("0", false)]
-    public void OnRequiresExactlyOneWhenSet_MatchesLegacySiteParse(string raw, bool expected)
-    {
-        Environment.SetEnvironmentVariable("TS_MLX_MLOCK_GGUF", raw);
-        Assert.Equal(expected, Resolve().MlxMlockGguf);
+        Qwen35Options o = Resolve();
+        Assert.Equal(expected, o.GdnChunkedPrefill);
+        Assert.Equal(expected, o.FusedDenseFfn);
     }
 
     // ----- int knobs: fill only on a valid value; sites keep their defaults -
@@ -227,12 +201,9 @@ public class KnobResolverTests : IDisposable
             .Where(k => k.Kind == KnobKind.Bool)
             .GroupBy(k => k.Dialect.Value)
             .ToDictionary(g => g.Key, g => g.Count());
-        Assert.Equal(28, byDialect[BoolDialect.LooseZeroOnly]);
-        Assert.Equal(3, byDialect[BoolDialect.LooseZeroOrFalse]);
-        Assert.Equal(14, byDialect[BoolDialect.StrictOptIn]);
-        Assert.Equal(2, byDialect[BoolDialect.InvertedDisableOne]);
-        Assert.Equal(1, byDialect[BoolDialect.InvertedDisableOneOrTrue]);
-        Assert.Equal(1, byDialect[BoolDialect.OnRequiresExactlyOneWhenSet]);
+        Assert.Equal(32, byDialect[BoolDialect.DefaultOn]);
+        Assert.Equal(14, byDialect[BoolDialect.DefaultOff]);
+        Assert.Equal(3, byDialect[BoolDialect.InvertedDisable]);
         Assert.Single(KnobRegistry.All.Where(k => !k.EnvResolvedAtCreate));
     }
 }

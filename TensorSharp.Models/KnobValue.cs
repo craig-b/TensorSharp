@@ -7,13 +7,12 @@ namespace TensorSharp.Models
     /// canonical form the options binder consumes ("true"/"false" or a
     /// decimal integer).
     ///
-    /// Read sites within one <see cref="BoolDialect"/> family differ slightly
-    /// in which tokens they accept (e.g. one loose site treats only "0" as
-    /// off, another also "false"), so normalization is deliberately partial:
-    /// a value is mapped only when every site in the family agrees on it, and
-    /// anything ambiguous returns false so the caller leaves the options
-    /// property null and the site's own env read decides — byte-identical by
-    /// construction.</summary>
+    /// Bool values accept exactly the canonical dialect tokens
+    /// (<see cref="KnobResolver.TryParseBoolToken"/>); the normalized value is
+    /// property-sense, so inverted <c>DISABLE_*</c> vars come out negated.
+    /// Unrecognized values return false: --set fails fast on them, and the
+    /// env config source leaves the property null so <see cref="KnobResolver"/>
+    /// warns and applies the default at model construction.</summary>
     public static class KnobValue
     {
         public static bool TryNormalize(KnobDef knob, string raw, out string normalized)
@@ -33,40 +32,11 @@ namespace TensorSharp.Models
                 return false;
             }
 
-            switch (knob.Dialect.Value)
-            {
-                case BoolDialect.LooseZeroOnly:
-                case BoolDialect.LooseZeroOrFalse:
-                    // Both loose families: "0" → off; anything not in
-                    // {"0","false"} → on. "false" is off in one family only →
-                    // ambiguous here; KnobResolver applies the exact dialect.
-                    if (raw == "0") { normalized = "false"; return true; }
-                    if (string.Equals(raw, "false", StringComparison.OrdinalIgnoreCase)) return false;
-                    normalized = "true";
-                    return true;
-
-                case BoolDialect.StrictOptIn:
-                    // All sites: "1" → on, "0" → off. Word forms vary per site.
-                    if (raw == "1") { normalized = "true"; return true; }
-                    if (raw == "0") { normalized = "false"; return true; }
-                    return false;
-
-                case BoolDialect.InvertedDisableOne:
-                case BoolDialect.InvertedDisableOneOrTrue:
-                    // DISABLE_* var: "1" disables everywhere, "0" disables
-                    // nowhere. "true" disables in one family only → ambiguous.
-                    if (raw == "1") { normalized = "false"; return true; }
-                    if (raw == "0") { normalized = "true"; return true; }
-                    return false;
-
-                case BoolDialect.OnRequiresExactlyOneWhenSet:
-                    // Set → on only when exactly "1".
-                    normalized = raw == "1" ? "true" : "false";
-                    return true;
-
-                default:
-                    return false;
-            }
+            if (!KnobResolver.TryParseBoolToken(raw, out bool token))
+                return false;
+            bool value = knob.Dialect.Value == BoolDialect.InvertedDisable ? !token : token;
+            normalized = value ? "true" : "false";
+            return true;
         }
     }
 }

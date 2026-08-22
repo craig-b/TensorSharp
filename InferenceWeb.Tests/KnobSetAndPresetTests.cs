@@ -69,10 +69,12 @@ public class KnobSetAndPresetTests : IDisposable
             ServerOptionsBuilder.BuildModelOptions(new[] { "--set", "TS_PREFILL_CHUNK=zero" }));
         Assert.Contains("integer", ex.Message);
 
-        // Word-form bools are ambiguous across the dialect families; --set
-        // insists on the canonical 1/0 instead of guessing.
+        // Canonical word forms are accepted; anything outside the token set
+        // still fails fast.
+        Assert.False(((Qwen35Options)ServerOptionsBuilder.BuildModelOptions(
+            new[] { "--set", "TS_QWEN35_FULL_DECODE=false" })).FullDecode);
         ex = Assert.Throws<ArgumentException>(() =>
-            ServerOptionsBuilder.BuildModelOptions(new[] { "--set", "TS_QWEN35_FULL_DECODE=false" }));
+            ServerOptionsBuilder.BuildModelOptions(new[] { "--set", "TS_QWEN35_FULL_DECODE=banana" }));
         Assert.Contains("1 or 0", ex.Message);
 
         Assert.Throws<ArgumentException>(() =>

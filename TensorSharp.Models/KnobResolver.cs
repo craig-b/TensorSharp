@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Reflection;
 
 namespace TensorSharp.Models
@@ -8,8 +9,13 @@ namespace TensorSharp.Models
     /// per-site <c>_opts.X ?? envRead()</c> fallbacks: after resolution every
     /// bool knob is non-null and int knobs are non-null whenever their env var
     /// held a valid value (sites keep their non-env defaults behind
-    /// <c>??</c>). The parse per knob is the registry dialect, byte-for-byte
-    /// the accepted-token set of the read site it replaced.
+    /// <c>??</c>).
+    ///
+    /// Bool values use the canonical dialect (see <see cref="BoolDialect"/>):
+    /// <c>1</c>/<c>true</c>/<c>yes</c>/<c>on</c> and <c>0</c>/<c>false</c>/
+    /// <c>no</c>/<c>off</c>, case-insensitive. Unset or empty → the knob's
+    /// default; an unrecognized value warns once per knob on stderr and uses
+    /// the default.
     ///
     /// Properties already set (by a host, a preset, or the config layer) are
     /// never touched, so explicit values keep precedence over env. The input
@@ -17,6 +23,8 @@ namespace TensorSharp.Models
     /// <see cref="ModelOptions.Default"/> is safe.</summary>
     public static class KnobResolver
     {
+        private static readonly ConcurrentDictionary<string, bool> _warned = new();
+
         /// <summary>Returns a copy of <paramref name="options"/> with unset
         /// knobs filled from the environment. Model-scope knobs are resolved
         /// always; Qwen35-scope knobs only when the instance is a
@@ -37,30 +45,39 @@ namespace TensorSharp.Models
                     continue;
                 string raw = Environment.GetEnvironmentVariable(knob.EnvVar);
                 if (knob.Kind == KnobKind.Bool)
-                    prop.SetValue(clone, ParseBool(knob.Dialect.Value, raw));
+                    prop.SetValue(clone, ResolveBool(knob, raw));
                 else if (raw != null && int.TryParse(raw, out int v) && v >= knob.IntMin.Value)
                     prop.SetValue(clone, v);
             }
             return clone;
         }
 
-        static bool ParseBool(BoolDialect dialect, string raw) => dialect switch
+        /// <summary>The canonical bool tokens. Exposed so the config layer
+        /// (<see cref="KnobValue"/>) accepts exactly the same values.</summary>
+        public static bool TryParseBoolToken(string raw, out bool value)
         {
-            BoolDialect.LooseZeroOnly =>
-                !string.Equals(raw, "0", StringComparison.Ordinal),
-            BoolDialect.LooseZeroOrFalse =>
-                !string.Equals(raw, "0", StringComparison.Ordinal)
-                && !string.Equals(raw, "false", StringComparison.OrdinalIgnoreCase),
-            BoolDialect.StrictOptIn =>
-                string.Equals(raw, "1", StringComparison.Ordinal),
-            BoolDialect.InvertedDisableOne =>
-                !string.Equals(raw, "1", StringComparison.Ordinal),
-            BoolDialect.InvertedDisableOneOrTrue =>
-                !(string.Equals(raw, "1", StringComparison.Ordinal)
-                  || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase)),
-            BoolDialect.OnRequiresExactlyOneWhenSet =>
-                string.Equals(raw ?? "1", "1", StringComparison.Ordinal),
-            _ => throw new InvalidOperationException($"Unhandled dialect {dialect}"),
-        };
+            switch (raw?.ToLowerInvariant())
+            {
+                case "1" or "true" or "yes" or "on": value = true; return true;
+                case "0" or "false" or "no" or "off": value = false; return true;
+                default: value = false; return false;
+            }
+        }
+
+        static bool ResolveBool(KnobDef knob, string raw)
+        {
+            bool defaultValue = knob.Dialect.Value != BoolDialect.DefaultOff;
+            if (string.IsNullOrEmpty(raw))
+                return defaultValue;
+            if (!TryParseBoolToken(raw, out bool token))
+            {
+                if (_warned.TryAdd(knob.EnvVar, true))
+                    Console.Error.WriteLine(
+                        $"[knobs] {knob.EnvVar}='{raw}' is not a recognized boolean " +
+                        $"(use 1 or 0); using the default ({(defaultValue ? "on" : "off")}).");
+                return defaultValue;
+            }
+            return knob.Dialect.Value == BoolDialect.InvertedDisable ? !token : token;
+        }
     }
 }
